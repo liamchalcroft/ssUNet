@@ -198,7 +198,7 @@ def resample_data_or_seg(data, new_shape, is_seg, axis=None, order=3, do_separat
 
 
 class GenericPreprocessor(object):
-    def __init__(self, normalization_scheme_per_modality, use_nonzero_mask, transpose_forward: (tuple, list), intensityproperties=None):
+    def __init__(self, normalization_scheme_per_modality, use_nonzero_mask, transpose_forward, intensityproperties=None):
         """
 
         :param normalization_scheme_per_modality: dict {0:'nonCT'}
@@ -400,7 +400,7 @@ class GenericPreprocessor(object):
 
 
 class GenericPreprocessor_linearResampling(GenericPreprocessor):
-    def __init__(self, normalization_scheme_per_modality, use_nonzero_mask, transpose_forward: (tuple, list),
+    def __init__(self, normalization_scheme_per_modality, use_nonzero_mask, transpose_forward,
                  intensityproperties=None):
         super().__init__(normalization_scheme_per_modality, use_nonzero_mask, transpose_forward, intensityproperties)
         self.resample_order_data = 1
@@ -588,7 +588,7 @@ class Preprocessor3DBetterResampling(GenericPreprocessor):
 
 
 class PreprocessorFor2D(GenericPreprocessor):
-    def __init__(self, normalization_scheme_per_modality, use_nonzero_mask, transpose_forward: (tuple, list), intensityproperties=None):
+    def __init__(self, normalization_scheme_per_modality, use_nonzero_mask, transpose_forward, intensityproperties=None):
         super(PreprocessorFor2D, self).__init__(normalization_scheme_per_modality, use_nonzero_mask,
                                                 transpose_forward, intensityproperties)
 

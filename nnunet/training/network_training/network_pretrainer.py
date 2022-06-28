@@ -19,7 +19,6 @@ from typing import Tuple
 import matplotlib
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunet.network_architecture.neural_network import SegmentationNetwork
-from sklearn.model_selection import KFold
 from torch import nn
 from torch.cuda.amp import GradScaler, autocast
 from torch.optim.lr_scheduler import _LRScheduler
@@ -38,8 +37,9 @@ from datetime import datetime
 from tqdm import trange
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda
 
+from solo.utils.knn import WeightedKNNClassifier
 
-class NetworkTrainer(object):
+class NetworkPreTrainer(object):
     def __init__(self, deterministic=True, fp16=False):
         """
         A generic class that can train almost any neural network (RNNs excluded). It provides basic functionality such
@@ -58,6 +58,10 @@ class NetworkTrainer(object):
         """
         self.fp16 = fp16
         self.amp_grad_scaler = None
+        self.clip_grad = None
+        self.freeze_encoder = False
+        self.freeze_decoder = False
+        self.extractor = False
 
         if deterministic:
             np.random.seed(12345)
@@ -74,42 +78,35 @@ class NetworkTrainer(object):
         self.network: Tuple[SegmentationNetwork, nn.DataParallel] = None
         self.optimizer = None
         self.lr_scheduler = None
-        self.tr_gen = self.val_gen = None
+        self.tr_gen = None
         self.was_initialized = False
 
         ################# SET THESE IN INIT ################################################
         self.output_folder = None
         self.fold = None
-        self.loss = None
         self.dataset_directory = None
 
         ################# SET THESE IN LOAD_DATASET OR DO_SPLIT ############################
         self.dataset = None  # these can be None for inference mode
-        self.dataset_tr = self.dataset_val = None  # do not need to be used, they just appear if you are using the suggested load_dataset_and_do_split
+        self.dataset_tr = None  # do not need to be used, they just appear if you are using the suggested load_dataset_and_do_split
 
         ################# THESE DO NOT NECESSARILY NEED TO BE MODIFIED #####################
         self.patience = 50
-        self.val_eval_criterion_alpha = 0.9  # alpha * old + (1-alpha) * new
         # if this is too low then the moving average will be too noisy and the training may terminate early. If it is
         # too high the training will take forever
         self.train_loss_MA_alpha = 0.93  # alpha * old + (1-alpha) * new
         self.train_loss_MA_eps = 5e-4  # new MA must be at least this much better (smaller)
         self.max_num_epochs = 1000
         self.num_batches_per_epoch = 250
-        self.num_val_batches_per_epoch = 50
-        self.also_val_in_tr_mode = False
         self.lr_threshold = 1e-6  # the network will not terminate training if the lr is still above this threshold
 
         ################# LEAVE THESE ALONE ################################################
-        self.val_eval_criterion_MA = None
         self.train_loss_MA = None
-        self.best_val_eval_criterion_MA = None
         self.best_MA_tr_loss_for_patience = None
         self.best_epoch_based_on_MA_tr_loss = None
         self.all_tr_losses = []
-        self.all_val_losses = []
-        self.all_val_losses_tr_mode = []
-        self.all_val_eval_metrics = []  # does not have to be used
+        self.knn_acc = []
+        self.knn_acc_item = []
         self.epoch = 0
         self.log_file = None
         self.deterministic = deterministic
@@ -123,7 +120,6 @@ class NetworkTrainer(object):
         self.save_latest_only = True  # if false it will not store/overwrite _latest but separate files each
         # time an intermediate checkpoint is created
         self.save_intermediate_checkpoints = True  # whether or not to save checkpoint_latest
-        self.save_best_checkpoint = True  # whether or not to save the best checkpoint according to self.best_val_eval_criterion_MA
         self.save_final_checkpoint = True  # whether or not to save the final checkpoint
 
     @abstractmethod
@@ -146,44 +142,6 @@ class NetworkTrainer(object):
     def load_dataset(self):
         pass
 
-    def do_split(self):
-        """
-        This is a suggestion for if your dataset is a dictionary (my personal standard)
-        :return:
-        """
-        splits_file = join(self.dataset_directory, "splits_final.pkl")
-        if not isfile(splits_file):
-            self.print_to_log_file("Creating new split...")
-            splits = []
-            all_keys_sorted = np.sort(list(self.dataset.keys()))
-            kfold = KFold(n_splits=5, shuffle=True, random_state=12345)
-            for i, (train_idx, test_idx) in enumerate(kfold.split(all_keys_sorted)):
-                train_keys = np.array(all_keys_sorted)[train_idx]
-                test_keys = np.array(all_keys_sorted)[test_idx]
-                splits.append(OrderedDict())
-                splits[-1]['train'] = train_keys
-                splits[-1]['val'] = test_keys
-            save_pickle(splits, splits_file)
-
-        splits = load_pickle(splits_file)
-
-        if self.fold == "all":
-            tr_keys = val_keys = list(self.dataset.keys())
-        else:
-            tr_keys = splits[self.fold]['train']
-            val_keys = splits[self.fold]['val']
-
-        tr_keys.sort()
-        val_keys.sort()
-
-        self.dataset_tr = OrderedDict()
-        for i in tr_keys:
-            self.dataset_tr[i] = self.dataset[i]
-
-        self.dataset_val = OrderedDict()
-        for i in val_keys:
-            self.dataset_val[i] = self.dataset[i]
-
     def plot_progress(self):
         """
         Should probably by improved
@@ -203,18 +161,9 @@ class NetworkTrainer(object):
 
             ax.plot(x_values, self.all_tr_losses, color='b', ls='-', label="loss_tr")
 
-            ax.plot(x_values, self.all_val_losses, color='r', ls='-', label="loss_val, train=False")
-
-            if len(self.all_val_losses_tr_mode) > 0:
-                ax.plot(x_values, self.all_val_losses_tr_mode, color='g', ls='-', label="loss_val, train=True")
-            if len(self.all_val_eval_metrics) == len(x_values):
-                ax2.plot(x_values, self.all_val_eval_metrics, color='g', ls='--', label="evaluation metric")
-
             ax.set_xlabel("epoch")
             ax.set_ylabel("loss")
-            ax2.set_ylabel("evaluation metric")
             ax.legend()
-            ax2.legend(loc=9)
 
             fig.savefig(join(self.output_folder, "progress.png"))
             plt.close()
@@ -278,9 +227,7 @@ class NetworkTrainer(object):
             'state_dict': state_dict,
             'optimizer_state_dict': optimizer_state_dict,
             'lr_scheduler_state_dict': lr_sched_state_dct,
-            'plot_stuff': (self.all_tr_losses, self.all_val_losses, self.all_val_losses_tr_mode,
-                           self.all_val_eval_metrics),
-            'best_stuff' : (self.best_epoch_based_on_MA_tr_loss, self.best_MA_tr_loss_for_patience, self.best_val_eval_criterion_MA)}
+            'plot_stuff': (self.all_tr_losses, self.knn_acc)}
         if self.amp_grad_scaler is not None:
             save_this['amp_grad_scaler'] = self.amp_grad_scaler.state_dict()
 
@@ -376,13 +323,8 @@ class NetworkTrainer(object):
             if issubclass(self.lr_scheduler.__class__, _LRScheduler):
                 self.lr_scheduler.step(self.epoch)
 
-        self.all_tr_losses, self.all_val_losses, self.all_val_losses_tr_mode, self.all_val_eval_metrics = checkpoint[
+        self.all_tr_losses, self.knn_acc = checkpoint[
             'plot_stuff']
-
-        # load best loss (if present)
-        if 'best_stuff' in checkpoint.keys():
-            self.best_epoch_based_on_MA_tr_loss, self.best_MA_tr_loss_for_patience, self.best_val_eval_criterion_MA = checkpoint[
-                'best_stuff']
 
         # after the training is done, the epoch is incremented one more time in my old code. This results in
         # self.epoch = 1001 for old trained models when the epoch is actually 1000. This causes issues because
@@ -393,9 +335,7 @@ class NetworkTrainer(object):
                                    "models should have this fixed! self.epoch is now set to len(self.all_tr_losses)")
             self.epoch = len(self.all_tr_losses)
             self.all_tr_losses = self.all_tr_losses[:self.epoch]
-            self.all_val_losses = self.all_val_losses[:self.epoch]
-            self.all_val_losses_tr_mode = self.all_val_losses_tr_mode[:self.epoch]
-            self.all_val_eval_metrics = self.all_val_eval_metrics[:self.epoch]
+            self.knn_acc = self.knn_acc[:self.epoch]
 
         self._maybe_init_amp()
 
@@ -416,7 +356,6 @@ class NetworkTrainer(object):
             self.print_to_log_file("WARNING!!! You are attempting to run training on a CPU (torch.cuda.is_available() is False). This can be VERY slow!")
 
         _ = self.tr_gen.next()
-        _ = self.val_gen.next()
 
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -458,26 +397,8 @@ class NetworkTrainer(object):
 
             self.all_tr_losses.append(np.mean(train_losses_epoch))
             self.print_to_log_file("train loss : %.4f" % self.all_tr_losses[-1])
-
-            with torch.no_grad():
-                # validation with train=False
-                self.network.eval()
-                val_losses = []
-                for b in range(self.num_val_batches_per_epoch):
-                    l = self.run_iteration(self.val_gen, False, True)
-                    val_losses.append(l)
-                self.all_val_losses.append(np.mean(val_losses))
-                self.print_to_log_file("validation loss: %.4f" % self.all_val_losses[-1])
-
-                if self.also_val_in_tr_mode:
-                    self.network.train()
-                    # validation with train=True
-                    val_losses = []
-                    for b in range(self.num_val_batches_per_epoch):
-                        l = self.run_iteration(self.val_gen, False)
-                        val_losses.append(l)
-                    self.all_val_losses_tr_mode.append(np.mean(val_losses))
-                    self.print_to_log_file("validation loss (train=True): %.4f" % self.all_val_losses_tr_mode[-1])
+            if self.freeze_decoder and self.extractor:
+                self.print_to_log_file("k-NN loss: %.4f" % self.knn_acc[-1])
 
             self.update_train_loss_MA()  # needed for lr scheduler and stopping of training
 
@@ -525,86 +446,31 @@ class NetworkTrainer(object):
             self.save_checkpoint(join(self.output_folder, "model_latest.model"))
             self.print_to_log_file("done")
 
-    def update_eval_criterion_MA(self):
-        """
-        If self.all_val_eval_metrics is unused (len=0) then we fall back to using -self.all_val_losses for the MA to determine early stopping
-        (not a minimization, but a maximization of a metric and therefore the - in the latter case)
-        :return:
-        """
-        if self.val_eval_criterion_MA is None:
-            if len(self.all_val_eval_metrics) == 0:
-                self.val_eval_criterion_MA = - self.all_val_losses[-1]
-            else:
-                self.val_eval_criterion_MA = self.all_val_eval_metrics[-1]
-        else:
-            if len(self.all_val_eval_metrics) == 0:
-                """
-                We here use alpha * old - (1 - alpha) * new because new in this case is the vlaidation loss and lower
-                is better, so we need to negate it.
-                """
-                self.val_eval_criterion_MA = self.val_eval_criterion_alpha * self.val_eval_criterion_MA - (
-                        1 - self.val_eval_criterion_alpha) * \
-                                             self.all_val_losses[-1]
-            else:
-                self.val_eval_criterion_MA = self.val_eval_criterion_alpha * self.val_eval_criterion_MA + (
-                        1 - self.val_eval_criterion_alpha) * \
-                                             self.all_val_eval_metrics[-1]
+    def run_online_knn(self, out1, out2):
+        with torch.no_grad():
+            # gt targets are the patient ID... kNN trained on latent proj of view 1 should predict the same for view 2
+            target = torch.Tensor(list(range(out1.shape[0])))
+            knn = WeightedKNNClassifier(k=2) # may want to play around with number of neighbours...
+            knn(
+                train_features = out1,
+                train_targets = target,
+                test_features = out2,
+                test_targets = target
+            )
+            acc, _ = knn.compute()
+            del knn
+            self.knn_acc_item.append(acc)
 
-    def manage_patience(self):
-        # update patience
-        continue_training = True
-        if self.patience is not None:
-            # if best_MA_tr_loss_for_patience and best_epoch_based_on_MA_tr_loss were not yet initialized,
-            # initialize them
-            if self.best_MA_tr_loss_for_patience is None:
-                self.best_MA_tr_loss_for_patience = self.train_loss_MA
+    def finish_online_knn(self):
+        self.knn_acc.append(np.mean(self.knn_acc_item))
 
-            if self.best_epoch_based_on_MA_tr_loss is None:
-                self.best_epoch_based_on_MA_tr_loss = self.epoch
+        self.print_to_log_file("Average k-NN accuracy:", self.knn_acc[-1])
+        self.print_to_log_file("(interpret this as an estimate of separation in latent space.)")
 
-            if self.best_val_eval_criterion_MA is None:
-                self.best_val_eval_criterion_MA = self.val_eval_criterion_MA
-
-            # check if the current epoch is the best one according to moving average of validation criterion. If so
-            # then save 'best' model
-            # Do not use this for validation. This is intended for test set prediction only.
-            #self.print_to_log_file("current best_val_eval_criterion_MA is %.4f0" % self.best_val_eval_criterion_MA)
-            #self.print_to_log_file("current val_eval_criterion_MA is %.4f" % self.val_eval_criterion_MA)
-
-            if self.val_eval_criterion_MA > self.best_val_eval_criterion_MA:
-                self.best_val_eval_criterion_MA = self.val_eval_criterion_MA
-                #self.print_to_log_file("saving best epoch checkpoint...")
-                if self.save_best_checkpoint: self.save_checkpoint(join(self.output_folder, "model_best.model"))
-
-            # Now see if the moving average of the train loss has improved. If yes then reset patience, else
-            # increase patience
-            if self.train_loss_MA + self.train_loss_MA_eps < self.best_MA_tr_loss_for_patience:
-                self.best_MA_tr_loss_for_patience = self.train_loss_MA
-                self.best_epoch_based_on_MA_tr_loss = self.epoch
-                #self.print_to_log_file("New best epoch (train loss MA): %03.4f" % self.best_MA_tr_loss_for_patience)
-            else:
-                pass
-                #self.print_to_log_file("No improvement: current train MA %03.4f, best: %03.4f, eps is %03.4f" %
-                #                       (self.train_loss_MA, self.best_MA_tr_loss_for_patience, self.train_loss_MA_eps))
-
-            # if patience has reached its maximum then finish training (provided lr is low enough)
-            if self.epoch - self.best_epoch_based_on_MA_tr_loss > self.patience:
-                if self.optimizer.param_groups[0]['lr'] > self.lr_threshold:
-                    #self.print_to_log_file("My patience ended, but I believe I need more time (lr > 1e-6)")
-                    self.best_epoch_based_on_MA_tr_loss = self.epoch - self.patience // 2
-                else:
-                    #self.print_to_log_file("My patience ended")
-                    continue_training = False
-            else:
-                pass
-                #self.print_to_log_file(
-                #    "Patience: %d/%d" % (self.epoch - self.best_epoch_based_on_MA_tr_loss, self.patience))
-
-        return continue_training
+        self.knn_acc_item = []
 
     def on_epoch_end(self):
-        self.finish_online_evaluation()  # does not have to do anything, but can be used to update self.all_val_eval_
-        # metrics
+        self.finish_online_knn()
 
         self.plot_progress()
 
@@ -612,10 +478,12 @@ class NetworkTrainer(object):
 
         self.maybe_save_checkpoint()
 
-        self.update_eval_criterion_MA()
-
-        continue_training = self.manage_patience()
+        continue_training = True
         return continue_training
+
+    def loss(self):
+        # To be defined for each loss' custom trainer class
+        raise NotImplementedError
 
     def update_train_loss_MA(self):
         if self.train_loss_MA is None:
@@ -626,63 +494,66 @@ class NetworkTrainer(object):
 
     def run_iteration(self, data_generator, do_backprop=True, run_online_evaluation=False):
         data_dict = next(data_generator)
-        data = data_dict['data']
-        target = data_dict['target']
-
-        data = maybe_to_torch(data)
-        target = maybe_to_torch(target)
-
-        if torch.cuda.is_available():
-            data = to_cuda(data)
-            target = to_cuda(target)
+        if self.extractor:
+            data1 = data_dict['data1']
+            data2 = data_dict['data2']
+            data1 = maybe_to_torch(data1)
+            data2 = maybe_to_torch(data2)
+            if torch.cuda.is_available():
+                data1 = to_cuda(data1)
+                data2 = to_cuda(data2)
+        else:
+            data = data_dict['data']
+            target = data_dict['target']
+            data = maybe_to_torch(data)
+            target = maybe_to_torch(target)
+            if torch.cuda.is_available():
+                data = to_cuda(data)
+                target = to_cuda(target)
 
         self.optimizer.zero_grad()
 
         if self.fp16:
             with autocast():
+                if self.extractor:
+                    output1 = self.network(data1)
+                    output2 = self.network(data2)
+                    del data1, data2
+                    l = self.loss(output1, output2)
+                else:
+                    output = self.network(data)
+                    del data
+                    l = self.loss(output, target)
+
+            if do_backprop:
+                self.amp_grad_scaler.scale(l).backward()
+                if self.clip_grad is not None:
+                    torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.clip_grad)
+                self.amp_grad_scaler.step(self.optimizer)
+                self.amp_grad_scaler.update()
+        else:
+            if self.extractor:
+                output1 = self.network(data1)
+                output2 = self.network(data2)
+                del data1, data2
+                l = self.loss(output1, output2)
+            else:
                 output = self.network(data)
                 del data
                 l = self.loss(output, target)
 
             if do_backprop:
-                self.amp_grad_scaler.scale(l).backward()
-                self.amp_grad_scaler.step(self.optimizer)
-                self.amp_grad_scaler.update()
-        else:
-            output = self.network(data)
-            del data
-            l = self.loss(output, target)
-
-            if do_backprop:
                 l.backward()
+                if self.clip_grad is not None:
+                    torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.clip_grad)
                 self.optimizer.step()
 
-        if run_online_evaluation:
-            self.run_online_evaluation(output, target)
+        if self.extractor:
+            self.run_online_knn(output1, output2)
 
         del target
 
         return l.detach().cpu().numpy()
-
-    def run_online_evaluation(self, *args, **kwargs):
-        """
-        Can be implemented, does not have to
-        :param output_torch:
-        :param target_npy:
-        :return:
-        """
-        pass
-
-    def finish_online_evaluation(self):
-        """
-        Can be implemented, does not have to
-        :return:
-        """
-        pass
-
-    @abstractmethod
-    def validate(self, *args, **kwargs):
-        pass
 
     def find_lr(self, num_iters=1000, init_value=1e-6, final_value=10., beta=0.98):
         """

@@ -16,8 +16,8 @@ import numpy as np
 import torch
 
 from nnunet.training.loss_functions.crossentropy import RobustCrossEntropyLoss
-from nnunet.training.network_training.nnUNetTrainerV2 import nnUNetTrainerV2
-from nnunet.training.network_training.nnUNetTrainerV2_DDP import nnUNetTrainerV2_DDP
+from nnunet.training.network_training.legacy.nnUNetTrainerV2 import nnUNetTrainerV2
+from nnunet.training.network_training.legacy.nnUNetTrainerV2_DDP import nnUNetTrainerV2_DDP
 from nnunet.training.network_training.nnUNet_variants.architectural_variants.nnUNetTrainerV2_noDeepSupervision import \
     nnUNetTrainerV2_noDeepSupervision
 from nnunet.utilities.to_torch import maybe_to_torch, to_cuda

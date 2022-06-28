@@ -24,13 +24,13 @@ from batchgenerators.utilities.file_and_folder_operations import *
 
 
 def get_case_identifiers(folder):
-    case_identifiers = [i[:-4] for i in os.listdir(folder) if i.endswith("npz") and (i.find("segFromPrevStage") == -1)]
+    case_identifiers = [i[:-4] for i in os.listdir(folder) if i.endswith("npz")]
     return case_identifiers
 
 
 def get_case_identifiers_from_raw_folder(folder):
     case_identifiers = np.unique(
-        [i[:-12] for i in os.listdir(folder) if i.endswith(".nii.gz") and (i.find("segFromPrevStage") == -1)])
+        [i[:-12] for i in os.listdir(folder) if i.endswith(".nii.gz")])
     return case_identifiers
 
 
@@ -99,9 +99,6 @@ def load_dataset(folder, num_cases_properties_loading_threshold=1000):
         # dataset[c]['properties'] = load_pickle(join(folder, "%s.pkl" % c))
         dataset[c]['properties_file'] = join(folder, "%s.pkl" % c)
 
-        if dataset[c].get('seg_from_prev_stage_file') is not None:
-            dataset[c]['seg_from_prev_stage_file'] = join(folder, "%s_segs.npz" % c)
-
     if len(case_identifiers) <= num_cases_properties_loading_threshold:
         print('loading all case properties')
         for i in dataset.keys():
@@ -113,7 +110,6 @@ def load_dataset(folder, num_cases_properties_loading_threshold=1000):
 def crop_2D_image_force_fg(img, crop_size, valid_voxels):
     """
     img must be [c, x, y]
-    img[-1] must be the segmentation with segmentation>0 being foreground
     :param img:
     :param crop_size:
     :param valid_voxels: voxels belonging to the selected class
@@ -199,17 +195,12 @@ class DataLoader3D(SlimDataLoaderBase):
         self.memmap_mode = memmap_mode
         self.num_channels = None
         self.pad_sides = pad_sides
-        self.data_shape, self.seg_shape = self.determine_shapes()
+        self.data_shape = self.determine_shapes()
 
     def get_do_oversample(self, batch_idx):
         return not batch_idx < round(self.batch_size * (1 - self.oversample_foreground_percent))
 
     def determine_shapes(self):
-        if self.has_prev_stage:
-            num_seg = 2
-        else:
-            num_seg = 1
-
         k = list(self._data.keys())[0]
         if isfile(self._data[k]['data_file'][:-4] + ".npy"):
             case_all_data = np.load(self._data[k]['data_file'][:-4] + ".npy", self.memmap_mode)
@@ -217,13 +208,11 @@ class DataLoader3D(SlimDataLoaderBase):
             case_all_data = np.load(self._data[k]['data_file'])['data']
         num_color_channels = case_all_data.shape[0] - 1
         data_shape = (self.batch_size, num_color_channels, *self.patch_size)
-        seg_shape = (self.batch_size, num_seg, *self.patch_size)
-        return data_shape, seg_shape
+        return data_shape
 
     def generate_train_batch(self):
         selected_keys = np.random.choice(self.list_of_keys, self.batch_size, True, None)
         data = np.zeros(self.data_shape, dtype=np.float32)
-        seg = np.zeros(self.seg_shape, dtype=np.float32)
         case_properties = []
         for j, i in enumerate(selected_keys):
             # oversampling foreground will improve stability of model training, especially if many patches are empty
@@ -245,26 +234,6 @@ class DataLoader3D(SlimDataLoaderBase):
                 case_all_data = np.load(self._data[i]['data_file'][:-4] + ".npy", self.memmap_mode)
             else:
                 case_all_data = np.load(self._data[i]['data_file'])['data']
-
-            # If we are doing the cascade then we will also need to load the segmentation of the previous stage and
-            # concatenate it. Here it will be concatenates to the segmentation because the augmentations need to be
-            # applied to it in segmentation mode. Later in the data augmentation we move it from the segmentations to
-            # the last channel of the data
-            if self.has_prev_stage:
-                if isfile(self._data[i]['seg_from_prev_stage_file'][:-4] + ".npy"):
-                    segs_from_previous_stage = np.load(self._data[i]['seg_from_prev_stage_file'][:-4] + ".npy",
-                                                       mmap_mode=self.memmap_mode)[None]
-                else:
-                    segs_from_previous_stage = np.load(self._data[i]['seg_from_prev_stage_file'])['data'][None]
-                # we theoretically support several possible previsous segmentations from which only one is sampled. But
-                # in practice this feature was never used so it's always only one segmentation
-                seg_key = np.random.choice(segs_from_previous_stage.shape[0])
-                seg_from_previous_stage = segs_from_previous_stage[seg_key:seg_key + 1]
-                assert all([i == j for i, j in zip(seg_from_previous_stage.shape[1:], case_all_data.shape[1:])]), \
-                    "seg_from_previous_stage does not match the shape of case_all_data: %s vs %s" % \
-                    (str(seg_from_previous_stage.shape[1:]), str(case_all_data.shape[1:]))
-            else:
-                seg_from_previous_stage = None
 
             # do you trust me? You better do. Otherwise you'll have to go through this mess and honestly there are
             # better things you could do right now
@@ -343,17 +312,9 @@ class DataLoader3D(SlimDataLoaderBase):
             valid_bbox_z_lb = max(0, bbox_z_lb)
             valid_bbox_z_ub = min(shape[2], bbox_z_ub)
 
-            # At this point you might ask yourself why we would treat seg differently from seg_from_previous_stage.
-            # Why not just concatenate them here and forget about the if statements? Well that's because segneeds to
-            # be padded with -1 constant whereas seg_from_previous_stage needs to be padded with 0s (we could also
-            # remove label -1 in the data augmentation but this way it is less error prone)
             case_all_data = np.copy(case_all_data[:, valid_bbox_x_lb:valid_bbox_x_ub,
                                     valid_bbox_y_lb:valid_bbox_y_ub,
                                     valid_bbox_z_lb:valid_bbox_z_ub])
-            if seg_from_previous_stage is not None:
-                seg_from_previous_stage = seg_from_previous_stage[:, valid_bbox_x_lb:valid_bbox_x_ub,
-                                          valid_bbox_y_lb:valid_bbox_y_ub,
-                                          valid_bbox_z_lb:valid_bbox_z_ub]
 
             data[j] = np.pad(case_all_data[:-1], ((0, 0),
                                                   (-min(0, bbox_x_lb), max(bbox_x_ub - shape[0], 0)),
@@ -361,22 +322,7 @@ class DataLoader3D(SlimDataLoaderBase):
                                                   (-min(0, bbox_z_lb), max(bbox_z_ub - shape[2], 0))),
                              self.pad_mode, **self.pad_kwargs_data)
 
-            seg[j, 0] = np.pad(case_all_data[-1:], ((0, 0),
-                                                    (-min(0, bbox_x_lb), max(bbox_x_ub - shape[0], 0)),
-                                                    (-min(0, bbox_y_lb), max(bbox_y_ub - shape[1], 0)),
-                                                    (-min(0, bbox_z_lb), max(bbox_z_ub - shape[2], 0))),
-                               'constant', **{'constant_values': -1})
-            if seg_from_previous_stage is not None:
-                seg[j, 1] = np.pad(seg_from_previous_stage, ((0, 0),
-                                                             (-min(0, bbox_x_lb),
-                                                              max(bbox_x_ub - shape[0], 0)),
-                                                             (-min(0, bbox_y_lb),
-                                                              max(bbox_y_ub - shape[1], 0)),
-                                                             (-min(0, bbox_z_lb),
-                                                              max(bbox_z_ub - shape[2], 0))),
-                                   'constant', **{'constant_values': 0})
-
-        return {'data': data, 'seg': seg, 'properties': case_properties, 'keys': selected_keys}
+        return {'data': data, 'properties': case_properties, 'keys': selected_keys}
 
 
 class DataLoader2D(SlimDataLoaderBase):
@@ -424,20 +370,17 @@ class DataLoader2D(SlimDataLoaderBase):
                 pad_sides = np.array(pad_sides)
             self.need_to_pad += pad_sides
         self.pad_sides = pad_sides
-        self.data_shape, self.seg_shape = self.determine_shapes()
+        self.data_shape = self.determine_shapes()
 
     def determine_shapes(self):
-        num_seg = 1
-
         k = list(self._data.keys())[0]
         if isfile(self._data[k]['data_file'][:-4] + ".npy"):
             case_all_data = np.load(self._data[k]['data_file'][:-4] + ".npy", self.memmap_mode)
         else:
             case_all_data = np.load(self._data[k]['data_file'])['data']
-        num_color_channels = case_all_data.shape[0] - num_seg
+        num_color_channels = case_all_data.shape[0]
         data_shape = (self.batch_size, num_color_channels, *self.patch_size)
-        seg_shape = (self.batch_size, num_seg, *self.patch_size)
-        return data_shape, seg_shape
+        return data_shape
 
     def get_do_oversample(self, batch_idx):
         return not batch_idx < round(self.batch_size * (1 - self.oversample_foreground_percent))
@@ -446,7 +389,6 @@ class DataLoader2D(SlimDataLoaderBase):
         selected_keys = np.random.choice(self.list_of_keys, self.batch_size, True, None)
 
         data = np.zeros(self.data_shape, dtype=np.float32)
-        seg = np.zeros(self.seg_shape, dtype=np.float32)
 
         case_properties = []
         for j, i in enumerate(selected_keys):
@@ -568,11 +510,6 @@ class DataLoader2D(SlimDataLoaderBase):
             valid_bbox_y_lb = max(0, bbox_y_lb)
             valid_bbox_y_ub = min(shape[1], bbox_y_ub)
 
-            # At this point you might ask yourself why we would treat seg differently from seg_from_previous_stage.
-            # Why not just concatenate them here and forget about the if statements? Well that's because segneeds to
-            # be padded with -1 constant whereas seg_from_previous_stage needs to be padded with 0s (we could also
-            # remove label -1 in the data augmentation but this way it is less error prone)
-
             case_all_data = case_all_data[:, valid_bbox_x_lb:valid_bbox_x_ub,
                             valid_bbox_y_lb:valid_bbox_y_ub]
 
@@ -581,16 +518,10 @@ class DataLoader2D(SlimDataLoaderBase):
                                                               (-min(0, bbox_y_lb), max(bbox_y_ub - shape[1], 0))),
                                          self.pad_mode, **self.pad_kwargs_data)
 
-            case_all_data_segonly = np.pad(case_all_data[-1:], ((0, 0),
-                                                                (-min(0, bbox_x_lb), max(bbox_x_ub - shape[0], 0)),
-                                                                (-min(0, bbox_y_lb), max(bbox_y_ub - shape[1], 0))),
-                                           'constant', **{'constant_values': -1})
-
             data[j] = case_all_data_donly
-            seg[j] = case_all_data_segonly
 
         keys = selected_keys
-        return {'data': data, 'seg': seg, 'properties': case_properties, "keys": keys}
+        return {'data': data, 'properties': case_properties, "keys": keys}
 
 
 if __name__ == "__main__":

@@ -18,22 +18,13 @@ from copy import deepcopy
 import numpy as np
 from batchgenerators.dataloading.multi_threaded_augmenter import MultiThreadedAugmenter
 from batchgenerators.transforms.abstract_transforms import Compose
-from batchgenerators.transforms.channel_selection_transforms import DataChannelSelectionTransform, \
-    SegChannelSelectionTransform
+from batchgenerators.transforms.noise_transforms import GaussianNoiseTransform
+from batchgenerators.transforms.channel_selection_transforms import DataChannelSelectionTransform
 from batchgenerators.transforms.color_transforms import GammaTransform
 from batchgenerators.transforms.spatial_transforms import SpatialTransform, MirrorTransform
-from batchgenerators.transforms.utility_transforms import RemoveLabelTransform, RenameTransform, NumpyToTensor
+from batchgenerators.transforms.utility_transforms import RenameTransform, NumpyToTensor
 
-from nnunet.training.data_augmentation.custom_transforms import Convert3DTo2DTransform, Convert2DTo3DTransform, \
-    MaskTransform, ConvertSegmentationToRegionsTransform
-from nnunet.training.data_augmentation.pyramid_augmentations import MoveSegAsOneHotToData, \
-    ApplyRandomBinaryOperatorTransform, \
-    RemoveRandomConnectedComponentFromOneHotEncodingTransform
-
-try:
-    from batchgenerators.dataloading.nondet_multi_threaded_augmenter import NonDetMultiThreadedAugmenter
-except ImportError as ie:
-    NonDetMultiThreadedAugmenter = None
+from nnunet.training.data_augmentation.custom_transforms import Convert3DTo2DTransform, Convert2DTo3DTransform
 
 
 default_3D_augmentation_params = {
@@ -131,17 +122,14 @@ def get_patch_size(final_patch_size, rot_x, rot_y, rot_z, scale_range):
     return final_shape.astype(int)
 
 
-def get_default_augmentation(dataloader_train, dataloader_val, patch_size, params=default_3D_augmentation_params,
+def get_denoising_augmentation(dataloader_train, patch_size, params=default_3D_augmentation_params,
                              border_val_seg=-1, pin_memory=True,
-                             seeds_train=None, seeds_val=None, regions=None):
+                             seeds_train=None):
     assert params.get('mirror') is None, "old version of params, use new keyword do_mirror"
     tr_transforms = []
 
     if params.get("selected_data_channels") is not None:
         tr_transforms.append(DataChannelSelectionTransform(params.get("selected_data_channels")))
-
-    if params.get("selected_seg_channels") is not None:
-        tr_transforms.append(SegChannelSelectionTransform(params.get("selected_seg_channels")))
 
     # don't do color augmentations while in 2d mode with 3d data because the color channel is overloaded!!
     if params.get("dummy_2D") is not None and params.get("dummy_2D"):
@@ -172,86 +160,16 @@ def get_default_augmentation(dataloader_train, dataloader_val, patch_size, param
     if params.get("do_mirror"):
         tr_transforms.append(MirrorTransform(params.get("mirror_axes")))
 
-    if params.get("mask_was_used_for_normalization") is not None:
-        mask_was_used_for_normalization = params.get("mask_was_used_for_normalization")
-        tr_transforms.append(MaskTransform(mask_was_used_for_normalization, mask_idx_in_seg=0, set_outside_to=0))
+    tr_transforms.append(RenameTransform('data', 'target', False))
 
-    tr_transforms.append(RemoveLabelTransform(-1, 0))
-
-    if params.get("move_last_seg_chanel_to_data") is not None and params.get("move_last_seg_chanel_to_data"):
-        tr_transforms.append(MoveSegAsOneHotToData(1, params.get("all_segmentation_labels"), 'seg', 'data'))
-        if params.get("cascade_do_cascade_augmentations") and not None and params.get(
-                "cascade_do_cascade_augmentations"):
-            tr_transforms.append(ApplyRandomBinaryOperatorTransform(
-                channel_idx=list(range(-len(params.get("all_segmentation_labels")), 0)),
-                p_per_sample=params.get("cascade_random_binary_transform_p"),
-                key="data",
-                strel_size=params.get("cascade_random_binary_transform_size")))
-            tr_transforms.append(RemoveRandomConnectedComponentFromOneHotEncodingTransform(
-                channel_idx=list(range(-len(params.get("all_segmentation_labels")), 0)),
-                key="data",
-                p_per_sample=params.get("cascade_remove_conn_comp_p"),
-                fill_with_other_class_p=params.get("cascade_remove_conn_comp_max_size_percent_threshold"),
-                dont_do_if_covers_more_than_X_percent=params.get("cascade_remove_conn_comp_fill_with_other_class_p")))
-
-    tr_transforms.append(RenameTransform('seg', 'target', True))
-
-    if regions is not None:
-        tr_transforms.append(ConvertSegmentationToRegionsTransform(regions, 'target', 'target'))
+    tr_transforms.append(GaussianNoiseTransform(p_per_sample=1, noise_variance=(0, 0.5)))
 
     tr_transforms.append(NumpyToTensor(['data', 'target'], 'float'))
 
     tr_transforms = Compose(tr_transforms)
-    # from batchgenerators.dataloading import SingleThreadedAugmenter
-    # batchgenerator_train = SingleThreadedAugmenter(dataloader_train, tr_transforms)
-    # import IPython;IPython.embed()
 
     batchgenerator_train = MultiThreadedAugmenter(dataloader_train, tr_transforms, params.get('num_threads'),
                                                   params.get("num_cached_per_thread"), seeds=seeds_train,
                                                   pin_memory=pin_memory)
 
-    val_transforms = []
-    val_transforms.append(RemoveLabelTransform(-1, 0))
-    if params.get("selected_data_channels") is not None:
-        val_transforms.append(DataChannelSelectionTransform(params.get("selected_data_channels")))
-    if params.get("selected_seg_channels") is not None:
-        val_transforms.append(SegChannelSelectionTransform(params.get("selected_seg_channels")))
-
-    if params.get("move_last_seg_chanel_to_data") is not None and params.get("move_last_seg_chanel_to_data"):
-        val_transforms.append(MoveSegAsOneHotToData(1, params.get("all_segmentation_labels"), 'seg', 'data'))
-
-    val_transforms.append(RenameTransform('seg', 'target', True))
-
-    if regions is not None:
-        val_transforms.append(ConvertSegmentationToRegionsTransform(regions, 'target', 'target'))
-
-    val_transforms.append(NumpyToTensor(['data', 'target'], 'float'))
-    val_transforms = Compose(val_transforms)
-
-    # batchgenerator_val = SingleThreadedAugmenter(dataloader_val, val_transforms)
-    batchgenerator_val = MultiThreadedAugmenter(dataloader_val, val_transforms, max(params.get('num_threads') // 2, 1),
-                                                params.get("num_cached_per_thread"), seeds=seeds_val,
-                                                pin_memory=pin_memory)
-    return batchgenerator_train, batchgenerator_val
-
-
-if __name__ == "__main__":
-    from nnunet.training.dataloading.dataset_loading import DataLoader3D, load_dataset
-    from nnunet.paths import preprocessing_output_dir
-    import os
-    import pickle
-
-    t = "Task002_Heart"
-    p = os.path.join(preprocessing_output_dir, t)
-    dataset = load_dataset(p, 0)
-    with open(os.path.join(p, "plans.pkl"), 'rb') as f:
-        plans = pickle.load(f)
-
-    basic_patch_size = get_patch_size(np.array(plans['stage_properties'][0].patch_size),
-                                      default_3D_augmentation_params['rotation_x'],
-                                      default_3D_augmentation_params['rotation_y'],
-                                      default_3D_augmentation_params['rotation_z'],
-                                      default_3D_augmentation_params['scale_range'])
-
-    dl = DataLoader3D(dataset, basic_patch_size, np.array(plans['stage_properties'][0].patch_size).astype(int), 1)
-    tr, val = get_default_augmentation(dl, dl, np.array(plans['stage_properties'][0].patch_size).astype(int))
+    return batchgenerator_train

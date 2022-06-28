@@ -1,12 +1,12 @@
 from setuptools import setup, find_namespace_packages
 
-setup(name='nnunet',
-      packages=find_namespace_packages(include=["nnunet", "nnunet.*"]),
-      version='1.7.0',
-      description='nnU-Net. Framework for out-of-the box biomedical image segmentation.',
-      url='https://github.com/MIC-DKFZ/nnUNet',
-      author='Division of Medical Image Computing, German Cancer Research Center',
-      author_email='f.isensee@dkfz-heidelberg.de',
+setup(name='ssunet',
+      packages=find_namespace_packages(include=["ssunet", "ssunet.*"]),
+      version='0.0.0',
+      description='ssU-Net. nnUNet-compatible self-supervised learning.',
+      url='https://github.com/liamchalcroft/ssUNet',
+      author='Liam Chalcroft (and authors of nnUNet)',
+      author_email='l.chalcroft@cs.ucl.ac.uk',
       license='Apache License Version 2.0, January 2004',
       install_requires=[
             "torch>1.10.0",
@@ -24,6 +24,7 @@ setup(name='nnunet',
             "nibabel", 
             "tifffile", 
             "matplotlib",
+            # "solo-learn",
       ],
       entry_points={
           'console_scripts': [
@@ -48,5 +49,5 @@ setup(name='nnunet',
           ],
       },
       keywords=['deep learning', 'image segmentation', 'medical image analysis',
-                'medical image segmentation', 'nnU-Net', 'nnunet']
+                'medical image segmentation', 'nnU-Net', 'nnunet', 'ssU-Net', 'ssunet']
       )

@@ -36,7 +36,7 @@ import matplotlib
 matplotlib.use("agg")
 
 
-class ContrastivePreTrainer(NetworkPreTrainer):
+class DenoisingPreTrainer(NetworkPreTrainer):
     """
     Info for Fabian: same as internal nnUNetTrainerV2_2
     """

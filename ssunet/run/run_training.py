@@ -19,6 +19,7 @@ from ssunet.run.default_configuration import get_default_configuration
 from ssunet.paths import default_plans_identifier
 from ssunet.run.load_pretrained_weights import load_pretrained_weights
 from ssunet.training.network_training.network_pretrainer import NetworkPreTrainer
+from ssunet.training.network_training.gradcache_pretrainer import GradCachePreTrainer
 from ssunet.utilities.task_name_id_conversion import convert_id_to_task_name
 
 
@@ -89,7 +90,7 @@ def main():
     if trainer_class is None:
         raise RuntimeError("Could not find trainer class in ssunet.training.network_training")
 
-    assert issubclass(trainer_class, NetworkPreTrainer), "network_trainer was found but is not derived from NetworkPreTrainer"
+    assert issubclass(trainer_class, (NetworkPreTrainer, GradCachePreTrainer)), "network_trainer was found but is not derived from NetworkPreTrainer"
 
     trainer = trainer_class(plans_file, output_folder=output_folder_name, dataset_directory=dataset_directory,
                             unpack_data=decompress_data,

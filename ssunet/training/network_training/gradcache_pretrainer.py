@@ -413,8 +413,8 @@ class GradCachePreTrainer(object):
 
                         if self.fp16:
                             with autocast():
-                                outcache1.append(self.model(self.network,data1))
-                                outcache2.append(self.model(self.network,data2))
+                                outcache1.append(self.call_model(self.network,data1))
+                                outcache2.append(self.call_model(self.network,data2))
                                 del data1, data2
                                 if step % self.metabatch == 0:
                                     l = self.loss(outcache1, outcache2)
@@ -424,8 +424,8 @@ class GradCachePreTrainer(object):
                                     self.amp_grad_scaler.step(self.optimizer)
                                     self.amp_grad_scaler.update()
                         else:
-                            outcache1.append(self.model(self.network,data1))
-                            outcache2.append(self.model(self.network,data2))
+                            outcache1.append(self.call_model(self.network,data1))
+                            outcache2.append(self.call_model(self.network,data2))
                             del data1, data2
                             if step % self.metabatch == 0:
                                 l = self.loss(outcache1, outcache2)
@@ -461,8 +461,8 @@ class GradCachePreTrainer(object):
 
                     if self.fp16:
                         with autocast():
-                            outcache1.append(self.model(self.network,data1))
-                            outcache2.append(self.model(self.network,data2))
+                            outcache1.append(self.call_model(self.network,data1))
+                            outcache2.append(self.call_model(self.network,data2))
                             del data1, data2
                             if step % self.metabatch == 0:
                                 l = self.loss(outcache1, outcache2)
@@ -472,8 +472,8 @@ class GradCachePreTrainer(object):
                                 self.amp_grad_scaler.step(self.optimizer)
                                 self.amp_grad_scaler.update()
                     else:
-                        outcache1.append(self.model(self.network,data1))
-                        outcache2.append(self.model(self.network,data2))
+                        outcache1.append(self.call_model(self.network,data1))
+                        outcache2.append(self.call_model(self.network,data2))
                         del data1, data2
                         if step % self.metabatch == 0:
                             l = self.loss(outcache1, outcache2)

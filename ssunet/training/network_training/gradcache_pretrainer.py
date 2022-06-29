@@ -44,7 +44,7 @@ from grad_cache.functional import cached, cat_input_tensor
 assert 'solo' in sys.modules, "solo-learn module not installed! Please go to https://github.com/vturrisi/solo-learn and follow the package installation instructions."
 from solo.utils.knn import WeightedKNNClassifier
 
-class GradcachePreTrainer(object):
+class GradCachePreTrainer(object):
     def __init__(self, deterministic=True, fp16=False):
         """
         A generic class that can train almost any neural network (RNNs excluded). It provides basic functionality such
@@ -416,8 +416,8 @@ class GradcachePreTrainer(object):
 
                         if self.fp16:
                             with autocast():
-                                outcache1.append(self.network(data1))
-                                outcache2.append(self.network(data2))
+                                outcache1.append(self.model(self.network,data1))
+                                outcache2.append(self.model(self.network,data2))
                                 del data1, data2
                                 if step % self.metabatch == 0:
                                     l = self.loss(outcache1, outcache2)
@@ -427,8 +427,8 @@ class GradcachePreTrainer(object):
                                     self.amp_grad_scaler.step(self.optimizer)
                                     self.amp_grad_scaler.update()
                         else:
-                            outcache1.append(self.network(data1))
-                            outcache2.append(self.network(data2))
+                            outcache1.append(self.model(self.network,data1))
+                            outcache2.append(self.model(self.network,data2))
                             del data1, data2
                             if step % self.metabatch == 0:
                                 l = self.loss(outcache1, outcache2)
@@ -464,8 +464,8 @@ class GradcachePreTrainer(object):
 
                     if self.fp16:
                         with autocast():
-                            outcache1.append(self.network(data1))
-                            outcache2.append(self.network(data2))
+                            outcache1.append(self.model(self.network,data1))
+                            outcache2.append(self.model(self.network,data2))
                             del data1, data2
                             if step % self.metabatch == 0:
                                 l = self.loss(outcache1, outcache2)
@@ -475,8 +475,8 @@ class GradcachePreTrainer(object):
                                 self.amp_grad_scaler.step(self.optimizer)
                                 self.amp_grad_scaler.update()
                     else:
-                        outcache1.append(self.network(data1))
-                        outcache2.append(self.network(data2))
+                        outcache1.append(self.model(self.network,data1))
+                        outcache2.append(self.model(self.network,data2))
                         del data1, data2
                         if step % self.metabatch == 0:
                             l = self.loss(outcache1, outcache2)
@@ -595,8 +595,8 @@ class GradcachePreTrainer(object):
                                  self.all_tr_losses[-1]
 
     @cached
-    def call_model(self, x):
-        return self.network(x)
+    def call_model(self, model, x):
+        return model(x)
 
     def find_lr(self, num_iters=1000, init_value=1e-6, final_value=10., beta=0.98):
         """

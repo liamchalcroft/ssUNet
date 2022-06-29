@@ -29,7 +29,7 @@ from ssunet.network_architecture.neural_network import SegmentationNetwork
 from ssunet.training.data_augmentation.default_data_augmentation import default_2D_augmentation_params, \
     get_patch_size, default_3D_augmentation_params
 from ssunet.training.dataloading.dataset_loading import unpack_dataset
-from ssunet.training.network_training.MomentumContrastivePreTrainer import MomentumContrastivePreTrainer
+from ssunet.training.network_training.MomentumPreTrainer import MomentumPreTrainer, GC_MomentumPreTrainer
 from ssunet.utilities.nd_softmax import softmax_helper
 from sklearn.model_selection import KFold
 from torch import nn
@@ -42,8 +42,10 @@ assert 'solo' in sys.modules, "solo-learn module not installed! Please go to htt
 from solo.losses.byol import byol_loss_func
 from solo.utils.momentum import initialize_momentum_params
 
+from gradcache.functional import cat_input_tensor
 
-class BYOLTrainer(MomentumContrastivePreTrainer):
+
+class BYOLTrainer(MomentumPreTrainer):
     """
     Info for Fabian: same as internal nnUNetTrainerV2_2
     """
@@ -72,7 +74,7 @@ class BYOLTrainer(MomentumContrastivePreTrainer):
             torch.nn.Linear(proj_hidden_dim, proj_output_dim),
         )
         initialize_momentum_params(self.projector, self.momentum_projector)
-        self.momentum_pairs.update((self.projector, self.momentum_projector))
+        self.momentum_pairs.append((self.projector, self.momentum_projector))
 
         self.predictor = nn.Sequential(
             torch.nn.Linear(proj_output_dim, pred_hidden_dim),
@@ -89,6 +91,69 @@ class BYOLTrainer(MomentumContrastivePreTrainer):
                                             self.initial_lr, weight_decay=self.weight_decay)
         self.lr_scheduler = None
 
+    def loss(self, view1, view2):
+        # pool both views
+        view1 = torch.mean(view1.view(view1.size(0), view1.size(1), -1), dim=2)
+        view2 = torch.mean(view2.view(view2.size(0), view2.size(1), -1), dim=2)
+
+        z1 = self.projector(view1)
+        z1 = self.predictor(z1)
+        z2 = self.momentum_projector(view2)
+
+        byol_loss = byol_loss_func(z1,z2)
+
+        del z1, z2, view1, view2
+
+        return byol_loss
+
+class GC_BYOLTrainer(GC_MomentumPreTrainer):
+    """
+    Info for Fabian: same as internal nnUNetTrainerV2_2
+    """
+
+    def __init__(self, plans_file, output_folder=None, dataset_directory=None,
+                 unpack_data=True, deterministic=True, fp16=False,
+                 freeze_encoder=False, freeze_decoder=True, extractor=True,
+                 proj_output_dim=256, proj_hidden_dim=2048, pred_hidden_dim=512, metabatch=8):
+        super().__init__(plans_file, output_folder, dataset_directory, unpack_data,
+                         deterministic, fp16, freeze_encoder, freeze_decoder, extractor)
+
+        self.load_plans_file()
+        self.process_plans(self.plans)
+        self.metabatch = metabatch
+
+        self.projector = nn.Sequential(
+            torch.nn.Linear(320 if self.threeD else 480, proj_hidden_dim),
+            torch.nn.BatchNorm1d(proj_hidden_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(proj_hidden_dim, proj_output_dim),
+        )
+
+        self.momentum_projector = nn.Sequential(
+            torch.nn.Linear(320 if self.threeD else 480, proj_hidden_dim),
+            torch.nn.BatchNorm1d(proj_hidden_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(proj_hidden_dim, proj_output_dim),
+        )
+        initialize_momentum_params(self.projector, self.momentum_projector)
+        self.momentum_pairs.append((self.projector, self.momentum_projector))
+
+        self.predictor = nn.Sequential(
+            torch.nn.Linear(proj_output_dim, pred_hidden_dim),
+            torch.nn.BatchNorm1d(pred_hidden_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(pred_hidden_dim, proj_output_dim),
+        )
+
+    def initialize_optimizer_and_scheduler(self):
+        assert self.network is not None, "self.initialize_network must be called first"
+        self.optimizer = torch.optim.AdamW(chain(self.network.parameters(), 
+                                                self.projector.parameters(),
+                                                self.predictor.parameters()),
+                                            self.initial_lr, weight_decay=self.weight_decay)
+        self.lr_scheduler = None
+
+    @cat_input_tensor
     def loss(self, view1, view2):
         # pool both views
         view1 = torch.mean(view1.view(view1.size(0), view1.size(1), -1), dim=2)

@@ -27,24 +27,29 @@ from ssunet.training.data_augmentation.default_data_augmentation import default_
     get_patch_size, default_3D_augmentation_params
 from ssunet.training.dataloading.dataset_loading import load_dataset, DataLoader3D, DataLoader2D, unpack_dataset
 from ssunet.training.network_training.network_pretrainer import NetworkPreTrainer
-from ssunet.training.network_training.gradcache_pretrainer import GradCachePreTrainer
 from ssunet.utilities.nd_softmax import softmax_helper
 from torch import nn
+from torch.cuda.amp import GradScaler, autocast
 from ssunet.training.learning_rate.poly_lr import poly_lr
 from batchgenerators.utilities.file_and_folder_operations import *
 
 import matplotlib
 matplotlib.use("agg")
 
+import sys
+assert 'solo' in sys.modules, "solo-learn module not installed! Please go to https://github.com/vturrisi/solo-learn and follow the package installation instructions."
+from solo.utils.momentum import initialize_momentum_params, MomentumUpdater
 
-class ContrastivePreTrainer(NetworkPreTrainer):
+
+class MomentumPreTrainer(NetworkPreTrainer):
     """
     Info for Fabian: same as internal nnUNetTrainerV2_2
     """
 
     def __init__(self, plans_file, output_folder=None, dataset_directory=None,
                  unpack_data=True, deterministic=True, fp16=False, clip_grad=12,
-                 freeze_encoder=False, freeze_decoder=True, extractor=True):
+                 freeze_encoder=False, freeze_decoder=True, extractor=True,
+                 base_tau=0.99, final_tau=1.):
 
         super().__init__(deterministic, fp16)
 
@@ -66,8 +71,14 @@ class ContrastivePreTrainer(NetworkPreTrainer):
         self.freeze_encoder = freeze_encoder
         self.freeze_decoder = freeze_decoder
         self.extractor = extractor
+        self.base_tau = base_tau
+        self.final_tau = final_tau
+
+        self.momentum_pairs = []
 
         self.plans = None
+
+        self.last_step = 0
 
         self.folder_with_preprocessed_data = None
 
@@ -180,9 +191,24 @@ class ContrastivePreTrainer(NetworkPreTrainer):
                                     self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True,
                                     None, ConvDropoutNormNonlin, False,
                                     self.freeze_encoder, self.freeze_decoder, self.extractor)
+        self.momentum_network = Generic_UNet(self.num_input_channels, self.base_num_features, self.num_classes,
+                                    len(self.net_num_pool_op_kernel_sizes),
+                                    self.conv_per_stage, 2, conv_op, norm_op, norm_op_kwargs, dropout_op,
+                                    dropout_op_kwargs,
+                                    net_nonlin, net_nonlin_kwargs, False, False, lambda x: x, InitWeights_He(1e-2),
+                                    self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True,
+                                    None, ConvDropoutNormNonlin, False,
+                                    self.freeze_encoder, self.freeze_decoder, self.extractor)
         if torch.cuda.is_available():
             self.network.cuda()
+            self.momentum_network.cuda()
         self.network.inference_apply_nonlin = softmax_helper
+
+        initialize_momentum_params(self.network, self.momentum_network)
+
+        self.momentum_updater = MomentumUpdater(self.base_tau, self.final_tau)
+
+        self.momentum_pairs.append((self.network, self.momentum_network))
 
     def initialize_optimizer_and_scheduler(self):
         assert self.network is not None, "self.initialize_network must be called first"
@@ -255,27 +281,63 @@ class ContrastivePreTrainer(NetworkPreTrainer):
         self.optimizer.param_groups[0]['lr'] = poly_lr(ep, self.max_num_epochs, self.initial_lr, 0.9)
         self.print_to_log_file("lr:", np.round(self.optimizer.param_groups[0]['lr'], decimals=6))
 
-    # def on_epoch_end(self):
-    #     """
-    #     overwrite patient-based early stopping. Always run to 1000 epochs
-    #     :return:
-    #     """
-    #     super().on_epoch_end()
-    #     continue_training = self.epoch < self.max_num_epochs
-    #     return continue_training
+    def on_epoch_end(self):
+        """
+        overwrite patient-based early stopping. Always run to 1000 epochs
+        :return:
+        """
+        super().on_epoch_end()
+        self.update_momentum()
+        continue_training = self.epoch < self.max_num_epochs
+        return continue_training
 
-    # def run_training(self):
-    #     """
-    #     if we run with -c then we need to set the correct lr for the first epoch, otherwise it will run the first
-    #     continued epoch with self.initial_lr
+    def update_momentum(self):
+        momentum_pairs = self.momentum_pairs
+        for mp in momentum_pairs:
+            self.momentum_updater(*mp)
+        self.momentum_updater.update_tau(cur_step=self.epch, max_steps=self.max_num_epochs)
 
-    #     we also need to make sure deep supervision in the network is enabled for training, thus the wrapper
-    #     :return:
-    #     """
-    #     self.maybe_update_lr(self.epoch)  # if we dont overwrite epoch then self.epoch+1 is used which is not what we
-    #     # want at the start of the training
-    #     ret = super().run_training()
-    #     return ret
+    def run_iteration(self, data_generator, do_backprop=True):
+        data_dict = next(data_generator)
+        data1 = data_dict['data1']
+        data2 = data_dict['data2']
+        data1 = maybe_to_torch(data1)
+        data2 = maybe_to_torch(data2)
+        if torch.cuda.is_available():
+            data1 = to_cuda(data1)
+            data2 = to_cuda(data2)
+
+        self.optimizer.zero_grad()
+
+        if self.fp16:
+            with autocast():  
+                output1 = self.network(data1)
+                output2 = self.momentum_network(data2)
+                del data1, data2
+                l = self.loss(output1, output2)
+
+            if do_backprop:
+                self.amp_grad_scaler.scale(l).backward()
+                if self.clip_grad is not None:
+                    torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.clip_grad)
+                self.amp_grad_scaler.step(self.optimizer)
+                self.amp_grad_scaler.update()
+        else:
+            output1 = self.network(data1)
+            output2 = self.momentum_network(data2)
+            del data1, data2
+            l = self.loss(output1, output2)
+
+            if do_backprop:
+                l.backward()
+                if self.clip_grad is not None:
+                    torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.clip_grad)
+                self.optimizer.step()
+
+        if self.extractor:
+            self.run_online_knn(output1, output2)
+
+        return l.detach().cpu().numpy()
 
     def plot_network_architecture(self):
         try:
@@ -417,14 +479,15 @@ class ContrastivePreTrainer(NetworkPreTrainer):
 
         write_pickle(info, fname + ".pkl")
 
-class GC_ContrastivePreTrainer(GradCachePreTrainer):
+class GC_MomentumPreTrainer(GradCachePreTrainer):
     """
     Info for Fabian: same as internal nnUNetTrainerV2_2
     """
 
     def __init__(self, plans_file, output_folder=None, dataset_directory=None,
                  unpack_data=True, deterministic=True, fp16=False, clip_grad=12,
-                 freeze_encoder=False, freeze_decoder=True, extractor=True):
+                 freeze_encoder=False, freeze_decoder=True, extractor=True,
+                 base_tau=0.99, final_tau=1.):
 
         super().__init__(deterministic, fp16)
 
@@ -446,8 +509,14 @@ class GC_ContrastivePreTrainer(GradCachePreTrainer):
         self.freeze_encoder = freeze_encoder
         self.freeze_decoder = freeze_decoder
         self.extractor = extractor
+        self.base_tau = base_tau
+        self.final_tau = final_tau
+
+        self.momentum_pairs = []
 
         self.plans = None
+
+        self.last_step = 0
 
         self.folder_with_preprocessed_data = None
 
@@ -560,9 +629,24 @@ class GC_ContrastivePreTrainer(GradCachePreTrainer):
                                     self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True,
                                     None, ConvDropoutNormNonlin, False,
                                     self.freeze_encoder, self.freeze_decoder, self.extractor)
+        self.momentum_network = Generic_UNet(self.num_input_channels, self.base_num_features, self.num_classes,
+                                    len(self.net_num_pool_op_kernel_sizes),
+                                    self.conv_per_stage, 2, conv_op, norm_op, norm_op_kwargs, dropout_op,
+                                    dropout_op_kwargs,
+                                    net_nonlin, net_nonlin_kwargs, False, False, lambda x: x, InitWeights_He(1e-2),
+                                    self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True,
+                                    None, ConvDropoutNormNonlin, False,
+                                    self.freeze_encoder, self.freeze_decoder, self.extractor)
         if torch.cuda.is_available():
             self.network.cuda()
+            self.momentum_network.cuda()
         self.network.inference_apply_nonlin = softmax_helper
+
+        initialize_momentum_params(self.network, self.momentum_network)
+
+        self.momentum_updater = MomentumUpdater(self.base_tau, self.final_tau)
+
+        self.momentum_pairs.append((self.network, self.momentum_network))
 
     def initialize_optimizer_and_scheduler(self):
         assert self.network is not None, "self.initialize_network must be called first"
@@ -635,27 +719,175 @@ class GC_ContrastivePreTrainer(GradCachePreTrainer):
         self.optimizer.param_groups[0]['lr'] = poly_lr(ep, self.max_num_epochs, self.initial_lr, 0.9)
         self.print_to_log_file("lr:", np.round(self.optimizer.param_groups[0]['lr'], decimals=6))
 
-    # def on_epoch_end(self):
-    #     """
-    #     overwrite patient-based early stopping. Always run to 1000 epochs
-    #     :return:
-    #     """
-    #     super().on_epoch_end()
-    #     continue_training = self.epoch < self.max_num_epochs
-    #     return continue_training
+    def on_epoch_end(self):
+        """
+        overwrite patient-based early stopping. Always run to 1000 epochs
+        :return:
+        """
+        super().on_epoch_end()
+        self.update_momentum()
+        continue_training = self.epoch < self.max_num_epochs
+        return continue_training
 
-    # def run_training(self):
-    #     """
-    #     if we run with -c then we need to set the correct lr for the first epoch, otherwise it will run the first
-    #     continued epoch with self.initial_lr
+    def update_momentum(self):
+        momentum_pairs = self.momentum_pairs
+        for mp in momentum_pairs:
+            self.momentum_updater(*mp)
+        self.momentum_updater.update_tau(cur_step=self.epch, max_steps=self.max_num_epochs)
 
-    #     we also need to make sure deep supervision in the network is enabled for training, thus the wrapper
-    #     :return:
-    #     """
-    #     self.maybe_update_lr(self.epoch)  # if we dont overwrite epoch then self.epoch+1 is used which is not what we
-    #     # want at the start of the training
-    #     ret = super().run_training()
-    #     return ret
+    def run_training(self):
+        if not torch.cuda.is_available():
+            self.print_to_log_file("WARNING!!! You are attempting to run training on a CPU (torch.cuda.is_available() is False). This can be VERY slow!")
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        self._maybe_init_amp()
+
+        maybe_mkdir_p(self.output_folder)        
+
+        if cudnn.benchmark and cudnn.deterministic:
+            warn("torch.backends.cudnn.deterministic is True indicating a deterministic training is desired. "
+                 "But torch.backends.cudnn.benchmark is True as well and this will prevent deterministic training! "
+                 "If you want deterministic then set benchmark=False")
+
+        if not self.was_initialized:
+            self.initialize(True)
+        self.plot_network_architecture()
+
+        while self.epoch < self.max_num_epochs:
+            self.print_to_log_file("\nepoch: ", self.epoch)
+            epoch_start_time = time()
+            train_losses_epoch = []
+
+            # train one epoch
+            self.network.train()
+
+            if self.use_progress_bar:
+                with trange(self.num_batches_per_epoch) as tbar:
+                    for step, b in enumerate(tbar):
+                        tbar.set_description("Epoch {}/{}".format(self.epoch+1, self.max_num_epochs))
+
+                        data_dict = next(self.tr_gen)
+
+                        data1 = data_dict['data1']
+                        data2 = data_dict['data2']
+                        data1 = maybe_to_torch(data1)
+                        data2 = maybe_to_torch(data2)
+                        if torch.cuda.is_available():
+                            data1 = to_cuda(data1)
+                            data2 = to_cuda(data2)
+
+                        self.optimizer.zero_grad()
+
+                        outcache1 = []
+                        outcache2 = []
+
+                        if self.fp16:
+                            with autocast():
+                                outcache1.append(self.model(self.network,data1))
+                                outcache2.append(self.model(self.momentum_network,data2))
+                                del data1, data2
+                                if step % self.metabatch == 0:
+                                    l = self.loss(outcache1, outcache2)
+                                    self.amp_grad_scaler.scale(l).backward()
+                                    if self.clip_grad is not None:
+                                        torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.clip_grad)
+                                    self.amp_grad_scaler.step(self.optimizer)
+                                    self.amp_grad_scaler.update()
+                        else:
+                            outcache1.append(self.model(self.network,data1))
+                            outcache2.append(self.model(self.momentum_network,data2))
+                            del data1, data2
+                            if step % self.metabatch == 0:
+                                l = self.loss(outcache1, outcache2)
+                                l.backward()
+                                if self.clip_grad is not None:
+                                    torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.clip_grad)
+                                self.optimizer.step()
+
+                        if step % self.metabatch == 0:
+                            self.run_online_knn(torch.cat(outcache1, dim=0), torch.cat(outcache2, dim=0))
+                        
+                        del outcache1, outcache2
+
+                        if step % self.metabatch == 0:
+                            tbar.set_postfix(loss=l.detach().cpu().numpy())
+                            train_losses_epoch.append(l)
+            else:
+                for step, _ in enumerate(range(self.num_batches_per_epoch)):
+                    data_dict = next(self.tr_gen)
+
+                    data1 = data_dict['data1']
+                    data2 = data_dict['data2']
+                    data1 = maybe_to_torch(data1)
+                    data2 = maybe_to_torch(data2)
+                    if torch.cuda.is_available():
+                        data1 = to_cuda(data1)
+                        data2 = to_cuda(data2)
+
+                    self.optimizer.zero_grad()
+
+                    outcache1 = []
+                    outcache2 = []
+
+                    if self.fp16:
+                        with autocast():
+                            outcache1.append(self.model(self.network,data1))
+                            outcache2.append(self.model(self.momentum_network,data2))
+                            del data1, data2
+                            if step % self.metabatch == 0:
+                                l = self.loss(outcache1, outcache2)
+                                self.amp_grad_scaler.scale(l).backward()
+                                if self.clip_grad is not None:
+                                    torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.clip_grad)
+                                self.amp_grad_scaler.step(self.optimizer)
+                                self.amp_grad_scaler.update()
+                    else:
+                        outcache1.append(self.model(self.network,data1))
+                        outcache2.append(self.model(self.momentum_network,data2))
+                        del data1, data2
+                        if step % self.metabatch == 0:
+                            l = self.loss(outcache1, outcache2)
+                            l.backward()
+                            if self.clip_grad is not None:
+                                torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.clip_grad)
+                            self.optimizer.step()
+
+                    if step % self.metabatch == 0:
+                        self.run_online_knn(torch.cat(outcache1, dim=0), torch.cat(outcache2, dim=0))
+                    
+                    del outcache1, outcache2
+
+                    if step % self.metabatch == 0:
+                        train_losses_epoch.append(l)
+
+            self.all_tr_losses.append(np.mean(train_losses_epoch))
+            self.print_to_log_file("train loss : %.4f" % self.all_tr_losses[-1])
+            
+            self.update_train_loss_MA()  # needed for lr scheduler and stopping of training
+
+            continue_training = self.on_epoch_end()
+            if self.freeze_decoder and self.extractor:
+                self.print_to_log_file("kNN loss: %.4f" % self.knn_acc[-1])
+
+            epoch_end_time = time()
+
+            if not continue_training:
+                # allows for early stopping
+                break
+
+            self.epoch += 1
+            self.print_to_log_file("This epoch took %f s\n" % (epoch_end_time - epoch_start_time))
+
+        self.epoch -= 1  # if we don't do this we can get a problem with loading model_final_checkpoint.
+
+        if self.save_final_checkpoint: self.save_checkpoint(join(self.output_folder, "model_final_checkpoint.model"))
+        # now we can delete latest as it will be identical with final
+        if isfile(join(self.output_folder, "model_latest.model")):
+            os.remove(join(self.output_folder, "model_latest.model"))
+        if isfile(join(self.output_folder, "model_latest.model.pkl")):
+            os.remove(join(self.output_folder, "model_latest.model.pkl"))
 
     def plot_network_architecture(self):
         try:

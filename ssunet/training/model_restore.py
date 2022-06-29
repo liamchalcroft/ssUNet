@@ -17,7 +17,7 @@ import torch
 from batchgenerators.utilities.file_and_folder_operations import *
 import importlib
 import pkgutil
-from ssunet.training.network_training.ContrastivePreTrainer import ContrastivePreTrainer
+from ssunet.training.network_training.ContrastivePreTrainer import ContrastivePreTrainer, GC_ContrastivePreTrainer
 
 
 def recursive_find_python_class(folder, trainer_name, current_module):

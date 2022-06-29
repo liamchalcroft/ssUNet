@@ -38,10 +38,7 @@ from datetime import datetime
 from tqdm import trange
 from ssunet.utilities.to_torch import maybe_to_torch, to_cuda
 
-assert 'grad_cache' in sys.modules, "GradCache method selected but module not installed! Please go to https://github.com/luyug/GradCache and follow the package installation instructions."
 from grad_cache.functional import cached, cat_input_tensor
-
-assert 'solo' in sys.modules, "solo-learn module not installed! Please go to https://github.com/vturrisi/solo-learn and follow the package installation instructions."
 from solo.utils.knn import WeightedKNNClassifier
 
 class GradCachePreTrainer(object):

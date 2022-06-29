@@ -27,6 +27,7 @@ from ssunet.training.data_augmentation.default_data_augmentation import default_
     get_patch_size, default_3D_augmentation_params
 from ssunet.training.dataloading.dataset_loading import load_dataset, DataLoader3D, DataLoader2D, unpack_dataset
 from ssunet.training.network_training.network_pretrainer import NetworkPreTrainer
+from ssunet.training.network_training.gradcache_pretrainer import GradCachePreTrainer
 from ssunet.utilities.nd_softmax import softmax_helper
 from torch import nn
 from torch.cuda.amp import GradScaler, autocast
@@ -36,8 +37,6 @@ from batchgenerators.utilities.file_and_folder_operations import *
 import matplotlib
 matplotlib.use("agg")
 
-import sys
-assert 'solo' in sys.modules, "solo-learn module not installed! Please go to https://github.com/vturrisi/solo-learn and follow the package installation instructions."
 from solo.utils.momentum import initialize_momentum_params, MomentumUpdater
 
 

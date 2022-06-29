@@ -43,7 +43,7 @@ class ContrastivePreTrainer(NetworkPreTrainer):
 
     def __init__(self, plans_file, output_folder=None, dataset_directory=None,
                  unpack_data=True, deterministic=True, fp16=False, clip_grad=12,
-                 freeze_encoder=True, freeze_decoder=False, extractor=False):
+                 freeze_encoder=True, freeze_decoder=False, extractor=False, deep_sup=False):
 
         super().__init__(deterministic, fp16)
 
@@ -65,6 +65,7 @@ class ContrastivePreTrainer(NetworkPreTrainer):
         self.freeze_encoder = freeze_encoder
         self.freeze_decoder = freeze_decoder
         self.extractor = extractor
+        self.deep_sup = deep_sup
 
         self.plans = None
 
@@ -175,7 +176,7 @@ class ContrastivePreTrainer(NetworkPreTrainer):
                                     len(self.net_num_pool_op_kernel_sizes),
                                     self.conv_per_stage, 2, conv_op, norm_op, norm_op_kwargs, dropout_op,
                                     dropout_op_kwargs,
-                                    net_nonlin, net_nonlin_kwargs, True, False, lambda x: x, InitWeights_He(1e-2),
+                                    net_nonlin, net_nonlin_kwargs, self.deep_sup, False, lambda x: x, InitWeights_He(1e-2),
                                     self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True,
                                     None, ConvDropoutNormNonlin, False,
                                     self.freeze_encoder, self.freeze_decoder, self.extractor)

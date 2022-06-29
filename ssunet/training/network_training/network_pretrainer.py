@@ -401,12 +401,12 @@ class NetworkPreTrainer(object):
 
             self.all_tr_losses.append(np.mean(train_losses_epoch))
             self.print_to_log_file("train loss : %.4f" % self.all_tr_losses[-1])
-            if self.freeze_decoder and self.extractor:
-                self.print_to_log_file("k-NN loss: %.4f" % self.knn_acc[-1])
-
+            
             self.update_train_loss_MA()  # needed for lr scheduler and stopping of training
 
             continue_training = self.on_epoch_end()
+            if self.freeze_decoder and self.extractor:
+                self.print_to_log_file("kNN loss: %.4f" % self.knn_acc[-1])
 
             epoch_end_time = time()
 
@@ -456,7 +456,7 @@ class NetworkPreTrainer(object):
             out1 = torch.mean(out1.view(out1.size(0), out1.size(1), -1), dim=2)
             out2 = torch.mean(out2.view(out2.size(0), out2.size(1), -1), dim=2)
             # gt targets are the patient ID... kNN trained on latent proj of view 1 should predict the same for view 2
-            target = torch.Tensor(list(range(out1.shape[0])))
+            target = torch.Tensor(list(range(out1.shape[0]))).long()
             knn = WeightedKNNClassifier(k=2) # may want to play around with number of neighbours...
             knn(
                 train_features = out1,
@@ -471,7 +471,7 @@ class NetworkPreTrainer(object):
     def finish_online_knn(self):
         self.knn_acc.append(np.mean(self.knn_acc_item))
 
-        self.print_to_log_file("Average k-NN accuracy:", self.knn_acc[-1])
+        self.print_to_log_file("Average kNN accuracy:", self.knn_acc[-1])
         self.print_to_log_file("(interpret this as an estimate of separation in latent space.)")
 
         self.knn_acc_item = []
@@ -531,6 +531,7 @@ class NetworkPreTrainer(object):
                     output = self.network(data)
                     del data
                     l = self.loss(output, target)
+                    del target
 
             if do_backprop:
                 self.amp_grad_scaler.scale(l).backward()
@@ -548,6 +549,7 @@ class NetworkPreTrainer(object):
                 output = self.network(data)
                 del data
                 l = self.loss(output, target)
+                del target
 
             if do_backprop:
                 l.backward()
@@ -557,8 +559,6 @@ class NetworkPreTrainer(object):
 
         if self.extractor:
             self.run_online_knn(output1, output2)
-
-        del target
 
         return l.detach().cpu().numpy()
 

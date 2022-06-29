@@ -52,8 +52,11 @@ class SimCLRTrainer(ContrastivePreTrainer):
         super().__init__(plans_file, fold, output_folder, dataset_directory, unpack_data,
                          deterministic, fp16, freeze_encoder, freeze_decoder, extractor)
 
+        self.load_plans_file()
+        self.process_plans(self.plans)
+
         self.projector = torch.nn.Sequential(
-            torch.nn.Linear(480, proj_hidden_dim),
+            torch.nn.Linear(320 if self.threeD else 480, proj_hidden_dim),
             torch.nn.ReLU(),
             torch.nn.Linear(proj_hidden_dim, proj_output_dim)
         )

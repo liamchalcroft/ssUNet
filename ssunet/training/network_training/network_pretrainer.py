@@ -62,6 +62,7 @@ class NetworkPreTrainer(object):
         self.freeze_encoder = False
         self.freeze_decoder = False
         self.extractor = False
+        self.noisevec = False
 
         if deterministic:
             np.random.seed(12345)
@@ -512,7 +513,7 @@ class NetworkPreTrainer(object):
                 data2 = to_cuda(data2)
         else:
             data = data_dict['data']
-            target = data_dict['target']
+            target = data_dict['data_noisevec'] if self.noisevec else data_dict['target']
             data = maybe_to_torch(data)
             target = maybe_to_torch(target)
             if torch.cuda.is_available():

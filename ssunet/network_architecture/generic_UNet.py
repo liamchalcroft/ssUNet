@@ -190,7 +190,7 @@ class Generic_UNet(SegmentationNetwork):
                  upscale_logits=False, convolutional_pooling=False, convolutional_upsampling=False,
                  max_num_features=None, basic_block=ConvDropoutNormNonlin,
                  seg_output_use_bias=False,
-                 freeze_encoder=False, freeze_decoder=False, extractor=False):
+                 freeze_encoder=False, freeze_decoder=False, extractor=False, skip=True):
         """
         basically more flexible than v1, architecture is the same
 
@@ -229,6 +229,7 @@ class Generic_UNet(SegmentationNetwork):
         self.freeze_encoder = freeze_encoder
         self.freeze_decoder = freeze_decoder
         self.extractor = extractor
+        self.skip = skip
 
         if conv_op == nn.Conv2d:
             upsample_mode = 'bilinear'
@@ -410,7 +411,7 @@ class Generic_UNet(SegmentationNetwork):
         seg_outputs = []
         for d in range(len(self.conv_blocks_context) - 1):
             x = self.conv_blocks_context[d](x)
-            skips.append(x)
+            skips.append(x if self.skip else torch.zeros_like(x))
             if not self.convolutional_pooling:
                 x = self.td[d](x)
 

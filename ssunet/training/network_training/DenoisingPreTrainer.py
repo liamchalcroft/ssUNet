@@ -43,7 +43,8 @@ class ContrastivePreTrainer(NetworkPreTrainer):
 
     def __init__(self, plans_file, output_folder=None, dataset_directory=None,
                  unpack_data=True, deterministic=True, fp16=False, clip_grad=12,
-                 freeze_encoder=True, freeze_decoder=False, extractor=False, deep_sup=False):
+                 freeze_encoder=True, freeze_decoder=False, extractor=False, 
+                 noisevec=False, skip=True, deep_sup=False):
 
         super().__init__(deterministic, fp16)
 
@@ -65,6 +66,8 @@ class ContrastivePreTrainer(NetworkPreTrainer):
         self.freeze_encoder = freeze_encoder
         self.freeze_decoder = freeze_decoder
         self.extractor = extractor
+        self.noisevec = noisevec
+        self.skip = skip # whether to use skip-connections - DDeP doesnt use skip connection...
         self.deep_sup = deep_sup
 
         self.plans = None
@@ -134,7 +137,8 @@ class ContrastivePreTrainer(NetworkPreTrainer):
                     self.data_aug_params[
                         'patch_size_for_spatialtransform'],
                     self.data_aug_params,
-                    pin_memory=self.pin_memory
+                    pin_memory=self.pin_memory,
+                    noisevec=self.noisevec
                 )
                 self.print_to_log_file("TRAINING KEYS:\n %s" % (str(self.dataset.keys())),
                                        also_print_to_console=False)
@@ -179,7 +183,7 @@ class ContrastivePreTrainer(NetworkPreTrainer):
                                     net_nonlin, net_nonlin_kwargs, self.deep_sup, False, lambda x: x, InitWeights_He(1e-2),
                                     self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True,
                                     None, ConvDropoutNormNonlin, False,
-                                    self.freeze_encoder, self.freeze_decoder, self.extractor)
+                                    self.freeze_encoder, self.freeze_decoder, self.extractor, self.skip)
         if torch.cuda.is_available():
             self.network.cuda()
         self.network.inference_apply_nonlin = softmax_helper

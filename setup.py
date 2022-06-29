@@ -24,8 +24,8 @@ setup(name='ssunet',
             "nibabel", 
             "tifffile", 
             "matplotlib",
-            "git+ssh://git@github.com/luyug/GradCache.git",
-            "git+ssh://git@github.com/vturrisi/solo-learn.git",
+            "GradCache @ git+https://github.com/luyug/GradCache.git",
+            "solo-learn @ git+https://github.com/vturrisi/solo-learn.git",
       ],
       entry_points={
           'console_scripts': [

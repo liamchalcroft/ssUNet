@@ -13,6 +13,7 @@
 #    limitations under the License.
 
 import numpy as np
+import random
 from batchgenerators.transforms.abstract_transforms import AbstractTransform
 
 
@@ -50,3 +51,57 @@ class Convert2DTo3DTransform(AbstractTransform):
 
     def __call__(self, **data_dict):
         return convert_2d_to_3d_generator(data_dict)
+
+
+class ScaledNoiseTransform(AbstractTransform):
+    def __init__(self, noise_variance=0.8, gamma=0.95, p_per_sample=1, data_key="data", return_noise_vec=False):
+        """
+        Adds additive Gaussian Noise
+        :param noise_variance: variance is uniformly sampled from that range
+        :param p_per_sample:
+        :param p_per_channel:
+        :param per_channel: if True, each channel will get its own variance sampled from noise_variance
+        :param data_key:
+        CAREFUL: This transform will modify the value range of your data!
+        """
+        self.p_per_sample = p_per_sample
+        self.data_key = data_key
+        self.noise_variance = noise_variance
+        self.gamma = gamma
+        self.return_noise_vec = return_noise_vec
+
+    def __call__(self, **data_dict):
+        noise_variance = self.ensure_tuple(self.noise_variance)
+        gamma = self.ensure_tuple(self.gamma)
+        for b in range(len(data_dict[self.data_key])):
+            if np.random.uniform() < self.p_per_sample:
+                if self.return_noise_vec==True:
+                    data_dict[self.data_key][b], data_dict[self.data_key+'_noisevec'][b] =\
+                        self.augment_scaled_gaussian_noise(data_dict[self.data_key][b], 
+                                                noise_variance, gamma,
+                                                self.p_per_channel, self.per_channel, True)
+                else:
+                    data_dict[self.data_key][b] = self.augment_scaled_gaussian_noise(data_dict[self.data_key][b], 
+                                                                        noise_variance, gamma,
+                                                                        self.p_per_channel, self.per_channel)
+        return data_dict
+
+    def ensure_tuple(self, arg):
+        if isinstance(arg, (float, int)):
+            return (arg, arg)
+        else:
+            return arg
+
+    def augment_scaled_gaussian_noise(self, data_sample, noise_variance=0.8,
+                                gamma=0.95, return_noise_vec=False):
+        variance = self.sample_dist(noise_variance)
+        gamma = self.sample_dist(gamma)
+        
+        noise_vec = np.random.normal(0.0, variance, size=data_sample[c].shape)
+        for c in range(data_sample.shape[0]):
+            data_sample[c] = np.sqrt(gamma) * data_sample[c] +\
+                np.sqrt(1-gamma) * noise_vec
+        return (data_sample, noise_vec) if return_noise_vec else data_sample
+
+    def sample_dist(self, arg):
+        return arg[0] if arg[0] == arg[1] else random.uniform(arg[0], arg[1])

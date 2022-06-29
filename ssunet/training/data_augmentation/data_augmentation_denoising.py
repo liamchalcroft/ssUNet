@@ -18,13 +18,12 @@ from copy import deepcopy
 import numpy as np
 from batchgenerators.dataloading.multi_threaded_augmenter import MultiThreadedAugmenter
 from batchgenerators.transforms.abstract_transforms import Compose
-from batchgenerators.transforms.noise_transforms import GaussianNoiseTransform
 from batchgenerators.transforms.channel_selection_transforms import DataChannelSelectionTransform
 from batchgenerators.transforms.color_transforms import GammaTransform
 from batchgenerators.transforms.spatial_transforms import SpatialTransform, MirrorTransform
 from batchgenerators.transforms.utility_transforms import RenameTransform, NumpyToTensor
 
-from ssunet.training.data_augmentation.custom_transforms import Convert3DTo2DTransform, Convert2DTo3DTransform
+from ssunet.training.data_augmentation.custom_transforms import Convert3DTo2DTransform, Convert2DTo3DTransform, ScaledNoiseTransform
 
 
 default_3D_augmentation_params = {
@@ -124,7 +123,7 @@ def get_patch_size(final_patch_size, rot_x, rot_y, rot_z, scale_range):
 
 def get_denoising_augmentation(dataloader_train, patch_size, params=default_3D_augmentation_params,
                              border_val_seg=-1, pin_memory=True,
-                             seeds_train=None):
+                             seeds_train=None, noisevec=False):
     assert params.get('mirror') is None, "old version of params, use new keyword do_mirror"
     tr_transforms = []
 
@@ -162,9 +161,9 @@ def get_denoising_augmentation(dataloader_train, patch_size, params=default_3D_a
 
     tr_transforms.append(RenameTransform('data', 'target', False))
 
-    tr_transforms.append(GaussianNoiseTransform(p_per_sample=1, noise_variance=(0, 0.5)))
+    tr_transforms.append(ScaledNoiseTransform(return_noise_vec=noisevec))
 
-    tr_transforms.append(NumpyToTensor(['data', 'target'], 'float'))
+    tr_transforms.append(NumpyToTensor(['data', 'target', 'data_noisevec'] if noisevec else ['data', 'target'], 'float'))
 
     tr_transforms = Compose(tr_transforms)
 

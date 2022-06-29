@@ -39,7 +39,7 @@ from batchgenerators.utilities.file_and_folder_operations import *
 
 from solo.losses.byol import byol_loss_func
 from solo.utils.momentum import initialize_momentum_params
-from gradcache.functional import cat_input_tensor
+from grad_cache.functional import cat_input_tensor
 
 
 class BYOLTrainer(MomentumPreTrainer):

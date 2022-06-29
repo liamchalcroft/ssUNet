@@ -38,7 +38,7 @@ from ssunet.training.learning_rate.poly_lr import poly_lr
 from batchgenerators.utilities.file_and_folder_operations import *
 
 from solo.losses.simclr import simclr_loss_func
-from gradcache.functional import cat_input_tensor
+from grad_cache.functional import cat_input_tensor
 
 
 class SimCLRTrainer(ContrastivePreTrainer):

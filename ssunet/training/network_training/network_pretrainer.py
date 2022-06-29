@@ -154,8 +154,7 @@ class NetworkPreTrainer(object):
             matplotlib.rc('font', **font)
 
             fig = plt.figure(figsize=(30, 24))
-            ax = fig.add_subplot(121)
-            ax2 = fig.add_subplot(122)
+            ax = fig.add_subplot(1,2,(2 if self.extractor else 1))
 
             x_values = list(range(self.epoch + 1))
 
@@ -165,11 +164,13 @@ class NetworkPreTrainer(object):
             ax.set_ylabel("loss")
             ax.legend()
 
-            ax2.plot(x_values, self.knn_acc, color='b', ls='-', label="knn_acc")
+            if self.extractor:
+                ax2 = fig.add_subplot(122)
+                ax2.plot(x_values, self.knn_acc, color='b', ls='-', label="knn_acc")
 
-            ax2.set_xlabel("epoch")
-            ax2.set_ylabel("kNN accuracy")
-            ax2.legend()
+                ax2.set_xlabel("epoch")
+                ax2.set_ylabel("kNN accuracy")
+                ax2.legend()
 
             fig.savefig(join(self.output_folder, "progress.png"))
             plt.close()

@@ -48,11 +48,11 @@ class BYOLTrainer(MomentumContrastivePreTrainer):
     Info for Fabian: same as internal nnUNetTrainerV2_2
     """
 
-    def __init__(self, plans_file, fold='all', output_folder=None, dataset_directory=None,
+    def __init__(self, plans_file, output_folder=None, dataset_directory=None,
                  unpack_data=True, deterministic=True, fp16=False,
                  freeze_encoder=False, freeze_decoder=True, extractor=True,
                  proj_output_dim=256, proj_hidden_dim=2048, pred_hidden_dim=512):
-        super().__init__(plans_file, fold, output_folder, dataset_directory, unpack_data,
+        super().__init__(plans_file, output_folder, dataset_directory, unpack_data,
                          deterministic, fp16, freeze_encoder, freeze_decoder, extractor)
 
         self.load_plans_file()

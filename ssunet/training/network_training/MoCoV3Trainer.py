@@ -29,7 +29,7 @@ from ssunet.network_architecture.neural_network import SegmentationNetwork
 from ssunet.training.data_augmentation.default_data_augmentation import default_2D_augmentation_params, \
     get_patch_size, default_3D_augmentation_params
 from ssunet.training.dataloading.dataset_loading import unpack_dataset
-from ssunet.training.network_training.ContrastivePreTrainer import ContrastivePreTrainer
+from ssunet.training.network_training.MomentumContrastivePreTrainer import MomentumContrastivePreTrainer
 from ssunet.utilities.nd_softmax import softmax_helper
 from sklearn.model_selection import KFold
 from torch import nn
@@ -39,10 +39,10 @@ from batchgenerators.utilities.file_and_folder_operations import *
 
 import sys
 assert 'solo' in sys.modules, "solo-learn module not installed! Please go to https://github.com/vturrisi/solo-learn and follow the package installation instructions."
-from solo.losses.vicreg import vicreg_loss_func
+from solo.utils.momentum import initialize_momentum_params
 
 
-class VICRegTrainer(ContrastivePreTrainer):
+class MoCoV3Trainer(MomentumContrastivePreTrainer):
     """
     Info for Fabian: same as internal nnUNetTrainerV2_2
     """
@@ -50,31 +50,43 @@ class VICRegTrainer(ContrastivePreTrainer):
     def __init__(self, plans_file, output_folder=None, dataset_directory=None,
                  unpack_data=True, deterministic=True, fp16=False,
                  freeze_encoder=False, freeze_decoder=True, extractor=True,
-                 proj_output_dim=2048, proj_hidden_dim=2048,
-                 sim_loss_weight=25.0, var_loss_weight=25.0, cov_loss_weight=1.0):
+                 proj_output_dim=256, proj_hidden_dim=4096, pred_hidden_dim=4096, temperature=0.2):
         super().__init__(plans_file, output_folder, dataset_directory, unpack_data,
                          deterministic, fp16, freeze_encoder, freeze_decoder, extractor)
 
         self.load_plans_file()
         self.process_plans(self.plans)
 
-        self.projector = torch.nn.Sequential(
+        self.projector = nn.Sequential(
             torch.nn.Linear(320 if self.threeD else 480, proj_hidden_dim),
-            torch.nn.BatchNorm1d(proj_hidden_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(proj_hidden_dim, proj_hidden_dim),
             torch.nn.BatchNorm1d(proj_hidden_dim),
             torch.nn.ReLU(),
             torch.nn.Linear(proj_hidden_dim, proj_output_dim),
         )
 
-        self.sim_loss_weight = sim_loss_weight
-        self.var_loss_weight = var_loss_weight
-        self.cov_loss_weight = cov_loss_weight
+        self.momentum_projector = nn.Sequential(
+            torch.nn.Linear(320 if self.threeD else 480, proj_hidden_dim),
+            torch.nn.BatchNorm1d(proj_hidden_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(proj_hidden_dim, proj_output_dim),
+        )
+        initialize_momentum_params(self.projector, self.momentum_projector)
+        self.momentum_pairs.update((self.projector, self.momentum_projector))
+
+        self.predictor = nn.Sequential(
+            torch.nn.Linear(proj_output_dim, pred_hidden_dim),
+            torch.nn.BatchNorm1d(pred_hidden_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(pred_hidden_dim, proj_output_dim),
+        )
+
+        self.temperature = temperature
 
     def initialize_optimizer_and_scheduler(self):
         assert self.network is not None, "self.initialize_network must be called first"
-        self.optimizer = torch.optim.AdamW(chain(self.network.parameters(), self.projector.parameters()),
+        self.optimizer = torch.optim.AdamW(chain(self.network.parameters(), 
+                                                self.projector.parameters(),
+                                                self.predictor.parameters()),
                                             self.initial_lr, weight_decay=self.weight_decay)
         self.lr_scheduler = None
 
@@ -84,10 +96,33 @@ class VICRegTrainer(ContrastivePreTrainer):
         view2 = torch.mean(view2.view(view2.size(0), view2.size(1), -1), dim=2)
 
         z1 = self.projector(view1)
-        z2 = self.projector(view2)
+        z1 = self.predictor(z1)
+        z2 = self.momentum_projector(view2)
 
-        vic_loss = vicreg_loss_func(z1,z2,self.sim_loss_weight,self.var_loss_weight,self.cov_loss_weight)
+        byol_loss = self.mocov3_loss_func(z1,z2,self.temperature)
 
-        del z1, z2
+        del z1, z2, view1, view2
 
-        return vic_loss
+        return byol_loss
+
+    def mocov3_loss_func(self, query, key, temperature=0.2) -> torch.Tensor:
+        """Computes MoCo V3's loss given a batch of queries from view 1, a batch of keys from view 2 and a
+        queue of past elements.
+        Args:
+            query (torch.Tensor): NxD Tensor containing the queries from view 1.
+            key (torch.Tensor): NxD Tensor containing the keys from view 2.
+            temperature (float, optional): temperature of the softmax in the contrastive
+                loss. Defaults to 0.2.
+        Returns:
+            torch.Tensor: MoCo loss.
+        """
+
+        device = query.device
+
+        query = torch.nn.functional.normalize(query, dim=1)
+        key = torch.nn.functional.normalize(key, dim=1)
+
+        logits = torch.einsum("nc,mc->nm", [query, key]) / temperature
+        labels = torch.arange(query.size(0), dtype=torch.long, device=device)
+
+        return torch.nn.functional.cross_entropy(logits, labels) * (2 * temperature)

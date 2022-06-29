@@ -37,6 +37,8 @@ from torch.cuda.amp import autocast
 from ssunet.training.learning_rate.poly_lr import poly_lr
 from batchgenerators.utilities.file_and_folder_operations import *
 
+import sys
+assert 'solo' in sys.modules, "solo-learn module not installed! Please go to https://github.com/vturrisi/solo-learn and follow the package installation instructions."
 from solo.losses.simclr import simclr_loss_func
 
 

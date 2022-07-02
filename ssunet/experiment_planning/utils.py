@@ -90,7 +90,7 @@ def create_lists_from_splitted_dataset(base_folder_splitted):
     for tr in training_files:
         cur_pat = []
         for mod in range(num_modalities):
-            cur_pat.append(join(base_folder_splitted, "imagesTr", tr['image'].split("/")[-1][:-12] +
+            cur_pat.append(join(base_folder_splitted, "imagesTr", tr['image'].split("/")[-1][:-7] +
                                 "_%04.0d.nii.gz" % mod))
         if 'label' in tr.keys():
             cur_pat.append(join(base_folder_splitted, "labelsTr", tr['label'].split("/")[-1]))
@@ -114,7 +114,7 @@ def create_lists_from_splitted_dataset_folder(folder):
 def get_caseIDs_from_splitted_dataset_folder(folder):
     files = subfiles(folder, suffix=".nii.gz", join=False)
     # all files must be .nii.gz and have 4 digit modality index
-    files = [i[:-12] for i in files]
+    files = [i[:-7] for i in files]
     # only unique patient ids
     files = np.unique(files)
     return files

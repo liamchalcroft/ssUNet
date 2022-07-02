@@ -105,7 +105,7 @@ def verify_dataset_integrity(folder):
     training_cases = dataset['training']
     num_modalities = len(dataset['modality'].keys())
     # test_cases = dataset['test']
-    expected_train_identifiers = [i['image'].split("/")[-1][:-12] for i in training_cases]
+    expected_train_identifiers = [i['image'].split("/")[-1][:-7] for i in training_cases]
     # expected_test_identifiers = [i.split("/")[-1][:-7] for i in test_cases]
 
     ## check training set
@@ -149,7 +149,7 @@ def verify_dataset_integrity(folder):
             #     geometries_OK = False
             #     print("The geometry of the image %s does not match the geometry of the label file. The pixel arrays "
             #           "will not be aligned and nnU-Net cannot use this data. Please make sure your image modalities "
-            #           "are coregistered and have the same geometry as the label" % expected_image_files[0][:-12])
+            #           "are coregistered and have the same geometry as the label" % expected_image_files[0][:-7])
             # if nans_in_image:
             #     print("There are NAN values in image %s" % expected_image_files[i])
 

@@ -30,7 +30,7 @@ def get_case_identifiers(folder):
 
 def get_case_identifiers_from_raw_folder(folder):
     case_identifiers = np.unique(
-        [i[:-12] for i in os.listdir(folder) if i.endswith(".nii.gz")])
+        [i[:-7] for i in os.listdir(folder) if i.endswith(".nii.gz")])
     return case_identifiers
 
 

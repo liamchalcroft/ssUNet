@@ -478,6 +478,39 @@ class MomentumPreTrainer(NetworkPreTrainer):
 
         write_pickle(info, fname + ".pkl")
 
+    def detcon_views(self, view1, view2, mask1, mask2):
+        if self.threeD:
+            pool = torch.nn.functional.adaptive_avg_pool3d
+        else:
+            pool = torch.nn.functional.adaptive_avg_pool2d
+
+        shape1 = view1.shape[2:]
+        shape2 = view2.shape[2:]
+
+        view1 = view1.view(view1.size(0), view1.size(1), -1)
+        view2 = view2.view(view2.size(0), view2.size(1), -1)
+
+        ch = mask1.size(1)
+
+        mask1 = pool(mask1, output_size=shape1)
+        mask2 = pool(mask2, output_size=shape2)
+
+        mask1 = mask1.view(mask1.size(0), mask1.size(1), -1)
+        mask2 = mask2.view(mask2.size(0), mask2.size(1), -1)
+
+        mask1 = mask1.argmax(dim=1)
+        mask2 = mask2.argmax(dim=1)
+
+        mask1 = torch.eye(ch, dtype=view1.dtype, device=view1.device)[mask1]
+        mask2 = torch.eye(ch, dtype=view2.dtype, device=view2.device)[mask2]
+
+        view1 = mask1.permute(0,2,1) @ view1.permute(0,2,1)
+        view2 = mask2.permute(0,2,1) @ view2.permute(0,2,1)
+        # now have pooled views of shape (B, MASK_CHANS, FEATURE_CHANS)
+        # instead of (B, FEATURE_CHANS) for non-detcon method
+
+        return view1, view2
+
 class GC_MomentumPreTrainer(GradCachePreTrainer):
     """
     Info for Fabian: same as internal nnUNetTrainerV2_2
@@ -1027,3 +1060,36 @@ class GC_MomentumPreTrainer(GradCachePreTrainer):
         info['plans'] = self.plans
 
         write_pickle(info, fname + ".pkl")
+
+    def detcon_views(self, view1, view2, mask1, mask2):
+        if self.threeD:
+            pool = torch.nn.functional.adaptive_avg_pool3d
+        else:
+            pool = torch.nn.functional.adaptive_avg_pool2d
+
+        shape1 = view1.shape[2:]
+        shape2 = view2.shape[2:]
+
+        view1 = view1.view(view1.size(0), view1.size(1), -1)
+        view2 = view2.view(view2.size(0), view2.size(1), -1)
+
+        ch = mask1.size(1)
+
+        mask1 = pool(mask1, output_size=shape1)
+        mask2 = pool(mask2, output_size=shape2)
+
+        mask1 = mask1.view(mask1.size(0), mask1.size(1), -1)
+        mask2 = mask2.view(mask2.size(0), mask2.size(1), -1)
+
+        mask1 = mask1.argmax(dim=1)
+        mask2 = mask2.argmax(dim=1)
+
+        mask1 = torch.eye(ch, dtype=view1.dtype, device=view1.device)[mask1]
+        mask2 = torch.eye(ch, dtype=view2.dtype, device=view2.device)[mask2]
+
+        view1 = mask1.permute(0,2,1) @ view1.permute(0,2,1)
+        view2 = mask2.permute(0,2,1) @ view2.permute(0,2,1)
+        # now have pooled views of shape (B, MASK_CHANS, FEATURE_CHANS)
+        # instead of (B, FEATURE_CHANS) for non-detcon method
+
+        return view1, view2

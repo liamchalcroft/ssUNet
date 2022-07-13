@@ -63,6 +63,10 @@ def main():
                         help='path to nnU-Net checkpoint file to be used as pretrained model (use .model '
                              'file, for example model_final_checkpoint.model). Will only be used when actually training. '
                              'Optional. Beta. Use with caution.')
+    parser.add_argument("--detcon", required=False, default=False,
+                        help="Use of Detective Contrastive style learning. Options ['intra', 'inter']\
+                            * Intra - Increase local negatives - different classes pulled apart in same image\
+                            * Inter - Increase global positives - same classes pushed together together between images")
 
     args = parser.parse_args()
 
@@ -71,6 +75,7 @@ def main():
     network_trainer = args.network_trainer
     plans_identifier = args.p
     find_lr = args.find_lr
+    detcon = args.detcon
 
     use_compressed_data = args.use_compressed_data
     decompress_data = not use_compressed_data
@@ -95,7 +100,8 @@ def main():
     trainer = trainer_class(plans_file, output_folder=output_folder_name, dataset_directory=dataset_directory,
                             unpack_data=decompress_data,
                             deterministic=deterministic,
-                            fp16=run_mixed_precision)
+                            fp16=run_mixed_precision,
+                            detcon=detcon)
     if args.disable_saving:
         trainer.save_final_checkpoint = False # whether or not to save the final checkpoint
         trainer.save_best_checkpoint = False  # whether or not to save the best checkpoint according to

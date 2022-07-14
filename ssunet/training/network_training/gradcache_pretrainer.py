@@ -65,6 +65,7 @@ class GradCachePreTrainer(object):
         self.freeze_decoder = False
         self.extractor = False
         self.noisevec = False
+        self.detcon = None
         self.metabatch = 1
 
 
@@ -391,6 +392,11 @@ class GradCachePreTrainer(object):
             # train one epoch
             self.network.train()
 
+            outcache1 = []
+            outcache2 = []
+            if self.detcon:
+                maskcache1 = []
+                maskcache2 = []
             if self.use_progress_bar:
                 with trange(self.num_batches_per_epoch) as tbar:
                     for step, b in enumerate(tbar):
@@ -405,11 +411,20 @@ class GradCachePreTrainer(object):
                         if torch.cuda.is_available():
                             data1 = to_cuda(data1)
                             data2 = to_cuda(data2)
+                        if self.detcon:
+                            mask1 = data_dict['mask1']
+                            mask2 = data_dict['mask2']
+                            mask1 = maybe_to_torch(mask1)
+                            mask2 = maybe_to_torch(mask2)
+                            if torch.cuda.is_available():
+                                mask1 = to_cuda(mask1)
+                                mask2 = to_cuda(mask2)
 
                         self.optimizer.zero_grad()
 
-                        outcache1 = []
-                        outcache2 = []
+                        if self.detcon:
+                            maskcache1.append(mask1)
+                            maskcache2.append(mask2)
 
                         if self.fp16:
                             with autocast():
@@ -417,7 +432,7 @@ class GradCachePreTrainer(object):
                                 outcache2.append(self.call_model(self.network,data2))
                                 del data1, data2
                                 if step % self.metabatch == 0:
-                                    l = self.loss(outcache1, outcache2)
+                                    l = self.loss(outcache1, outcache2, maskcache1, maskcache2) if self.detcon else self.loss(outcache1, outcache2)
                                     self.amp_grad_scaler.scale(l).backward()
                                     if self.clip_grad is not None:
                                         torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.clip_grad)
@@ -428,7 +443,7 @@ class GradCachePreTrainer(object):
                             outcache2.append(self.call_model(self.network,data2))
                             del data1, data2
                             if step % self.metabatch == 0:
-                                l = self.loss(outcache1, outcache2)
+                                l = self.loss(outcache1, outcache2, maskcache1, maskcache2) if self.detcon else self.loss(outcache1, outcache2)
                                 l.backward()
                                 if self.clip_grad is not None:
                                     torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.clip_grad)
@@ -436,10 +451,13 @@ class GradCachePreTrainer(object):
 
                         if step % self.metabatch == 0:
                             self.run_online_knn(torch.cat(outcache1, dim=0), torch.cat(outcache2, dim=0))
-                        
-                        del outcache1, outcache2
-
-                        if step % self.metabatch == 0:
+                            del outcache1, outcache2
+                            outcache1 = []
+                            outcache2 = []
+                            if self.detcon:
+                                del maskcache1, maskcache2
+                                maskcache1 = []
+                                maskcache2 = []
                             tbar.set_postfix(loss=l.detach().cpu().numpy())
                             train_losses_epoch.append(l)
             else:
@@ -456,8 +474,9 @@ class GradCachePreTrainer(object):
 
                     self.optimizer.zero_grad()
 
-                    outcache1 = []
-                    outcache2 = []
+                    if self.detcon:
+                        maskcache1.append(mask1)
+                        maskcache2.append(mask2)
 
                     if self.fp16:
                         with autocast():
@@ -465,7 +484,7 @@ class GradCachePreTrainer(object):
                             outcache2.append(self.call_model(self.network,data2))
                             del data1, data2
                             if step % self.metabatch == 0:
-                                l = self.loss(outcache1, outcache2)
+                                l = self.loss(outcache1, outcache2, maskcache1, maskcache2) if self.detcon else self.loss(outcache1, outcache2)
                                 self.amp_grad_scaler.scale(l).backward()
                                 if self.clip_grad is not None:
                                     torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.clip_grad)
@@ -476,7 +495,7 @@ class GradCachePreTrainer(object):
                         outcache2.append(self.call_model(self.network,data2))
                         del data1, data2
                         if step % self.metabatch == 0:
-                            l = self.loss(outcache1, outcache2)
+                            l = self.loss(outcache1, outcache2, maskcache1, maskcache2) if self.detcon else self.loss(outcache1, outcache2)
                             l.backward()
                             if self.clip_grad is not None:
                                 torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.clip_grad)
@@ -484,10 +503,13 @@ class GradCachePreTrainer(object):
 
                     if step % self.metabatch == 0:
                         self.run_online_knn(torch.cat(outcache1, dim=0), torch.cat(outcache2, dim=0))
-                    
-                    del outcache1, outcache2
-
-                    if step % self.metabatch == 0:
+                        del outcache1, outcache2
+                        outcache1 = []
+                        outcache2 = []
+                        if self.detcon:
+                            del maskcache1, maskcache2
+                            maskcache1 = []
+                            maskcache2 = []
                         train_losses_epoch.append(l)
 
             self.all_tr_losses.append(np.mean(train_losses_epoch))
@@ -595,54 +617,54 @@ class GradCachePreTrainer(object):
     def call_model(self, model, x):
         return model(x)
 
-    def find_lr(self, num_iters=1000, init_value=1e-6, final_value=10., beta=0.98):
-        """
-        stolen and adapted from here: https://sgugger.github.io/how-do-you-find-a-good-learning-rate.html
-        :param num_iters:
-        :param init_value:
-        :param final_value:
-        :param beta:
-        :return:
-        """
-        import math
-        self._maybe_init_amp()
-        mult = (final_value / init_value) ** (1 / num_iters)
-        lr = init_value
-        self.optimizer.param_groups[0]['lr'] = lr
-        avg_loss = 0.
-        best_loss = 0.
-        losses = []
-        log_lrs = []
+    # def find_lr(self, num_iters=1000, init_value=1e-6, final_value=10., beta=0.98):
+    #     """
+    #     stolen and adapted from here: https://sgugger.github.io/how-do-you-find-a-good-learning-rate.html
+    #     :param num_iters:
+    #     :param init_value:
+    #     :param final_value:
+    #     :param beta:
+    #     :return:
+    #     """
+    #     import math
+    #     self._maybe_init_amp()
+    #     mult = (final_value / init_value) ** (1 / num_iters)
+    #     lr = init_value
+    #     self.optimizer.param_groups[0]['lr'] = lr
+    #     avg_loss = 0.
+    #     best_loss = 0.
+    #     losses = []
+    #     log_lrs = []
 
-        for batch_num in range(1, num_iters + 1):
-            # +1 because this one here is not designed to have negative loss...
-            loss = self.run_iteration(self.tr_gen, do_backprop=True, run_online_evaluation=False).data.item() + 1
+    #     for batch_num in range(1, num_iters + 1):
+    #         # +1 because this one here is not designed to have negative loss...
+    #         loss = self.run_iteration(self.tr_gen, do_backprop=True, run_online_evaluation=False).data.item() + 1
 
-            # Compute the smoothed loss
-            avg_loss = beta * avg_loss + (1 - beta) * loss
-            smoothed_loss = avg_loss / (1 - beta ** batch_num)
+    #         # Compute the smoothed loss
+    #         avg_loss = beta * avg_loss + (1 - beta) * loss
+    #         smoothed_loss = avg_loss / (1 - beta ** batch_num)
 
-            # Stop if the loss is exploding
-            if batch_num > 1 and smoothed_loss > 4 * best_loss:
-                break
+    #         # Stop if the loss is exploding
+    #         if batch_num > 1 and smoothed_loss > 4 * best_loss:
+    #             break
 
-            # Record the best loss
-            if smoothed_loss < best_loss or batch_num == 1:
-                best_loss = smoothed_loss
+    #         # Record the best loss
+    #         if smoothed_loss < best_loss or batch_num == 1:
+    #             best_loss = smoothed_loss
 
-            # Store the values
-            losses.append(smoothed_loss)
-            log_lrs.append(math.log10(lr))
+    #         # Store the values
+    #         losses.append(smoothed_loss)
+    #         log_lrs.append(math.log10(lr))
 
-            # Update the lr for the next step
-            lr *= mult
-            self.optimizer.param_groups[0]['lr'] = lr
+    #         # Update the lr for the next step
+    #         lr *= mult
+    #         self.optimizer.param_groups[0]['lr'] = lr
 
-        import matplotlib.pyplot as plt
-        lrs = [10 ** i for i in log_lrs]
-        fig = plt.figure()
-        plt.xscale('log')
-        plt.plot(lrs[10:-5], losses[10:-5])
-        plt.savefig(join(self.output_folder, "lr_finder.png"))
-        plt.close()
-        return log_lrs, losses
+    #     import matplotlib.pyplot as plt
+    #     lrs = [10 ** i for i in log_lrs]
+    #     fig = plt.figure()
+    #     plt.xscale('log')
+    #     plt.plot(lrs[10:-5], losses[10:-5])
+    #     plt.savefig(join(self.output_folder, "lr_finder.png"))
+    #     plt.close()
+    #     return log_lrs, losses

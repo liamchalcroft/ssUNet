@@ -63,6 +63,7 @@ class NetworkPreTrainer(object):
         self.freeze_decoder = False
         self.extractor = False
         self.noisevec = False
+        self.detcon = None
 
         if deterministic:
             np.random.seed(12345)
@@ -511,6 +512,14 @@ class NetworkPreTrainer(object):
             if torch.cuda.is_available():
                 data1 = to_cuda(data1)
                 data2 = to_cuda(data2)
+            if self.detcon:
+                mask1 = data_dict['mask1']
+                mask2 = data_dict['mask2']
+                mask1 = maybe_to_torch(mask1)
+                mask2 = maybe_to_torch(mask2)
+                if torch.cuda.is_available():
+                    mask1 = to_cuda(mask1)
+                    mask2 = to_cuda(mask2)
         else:
             data = data_dict['data']
             target = data_dict['data_noisevec'] if self.noisevec else data_dict['target']
@@ -528,7 +537,7 @@ class NetworkPreTrainer(object):
                     output1 = self.network(data1)
                     output2 = self.network(data2)
                     del data1, data2
-                    l = self.loss(output1, output2)
+                    l = self.loss(output1, output2, mask1, mask2) if self.detcon else self.loss(output1, output2)
                 else:
                     output = self.network(data)
                     del data
@@ -546,7 +555,7 @@ class NetworkPreTrainer(object):
                 output1 = self.network(data1)
                 output2 = self.network(data2)
                 del data1, data2
-                l = self.loss(output1, output2)
+                l = self.loss(output1, output2, mask1, mask2) if self.detcon else self.loss(output1, output2)
             else:
                 output = self.network(data)
                 del data

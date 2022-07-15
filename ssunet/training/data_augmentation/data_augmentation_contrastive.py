@@ -12,6 +12,7 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
+from cProfile import label
 from batchgenerators.dataloading.multi_threaded_augmenter import MultiThreadedAugmenter
 from batchgenerators.transforms.abstract_transforms import Compose
 from batchgenerators.transforms.channel_selection_transforms import DataChannelSelectionTransform
@@ -21,11 +22,12 @@ from batchgenerators.transforms.noise_transforms import GaussianNoiseTransform, 
 from batchgenerators.transforms.resample_transforms import SimulateLowResolutionTransform
 from batchgenerators.transforms.spatial_transforms import SpatialTransform, MirrorTransform
 from batchgenerators.transforms.utility_transforms import RenameTransform, NumpyToTensor
-from ssunet.training.data_augmentation.custom_transforms import Convert3DTo2DTransform, Convert2DTo3DTransform
+from ssunet.training.data_augmentation.custom_transforms import Convert3DTo2DTransform, Convert2DTo3DTransform, \
+    MaskTransform, RemoveLabelTransform, MoveSegAsOneHotToData
 from ssunet.training.data_augmentation.default_data_augmentation import default_3D_augmentation_params
 
 
-def get_augs(tr_transforms=[], target_key='data',
+def get_augs(tr_transforms=[], target_key='data', label_key=None,
             patch_size_spatial=None, params=default_3D_augmentation_params,
             border_val_seg=-1, ignore_axes=False, order_seg=1, order_data=3):
     tr_transforms.append(SpatialTransform(
@@ -38,7 +40,7 @@ def get_augs(tr_transforms=[], target_key='data',
         order_seg=order_seg, random_crop=params.get("random_crop"), p_el_per_sample=params.get("p_eldef"),
         p_scale_per_sample=params.get("p_scale"), p_rot_per_sample=params.get("p_rot"),
         independent_scale_for_each_axis=params.get("independent_scale_factor_for_each_axis"),
-        p_independent_scale_per_axis=params.get("p_independent_scale_per_axis"), data_key=target_key))
+        p_independent_scale_per_axis=params.get("p_independent_scale_per_axis"), data_key=target_key, label_key=label_key))
 
     if params.get("dummy_2D"):
         tr_transforms.append(Convert2DTo3DTransform())
@@ -71,13 +73,23 @@ def get_augs(tr_transforms=[], target_key='data',
                            p_per_sample=params["p_gamma"], data_key=target_key))
 
     if params.get("do_mirror") or params.get("mirror"):
-        tr_transforms.append(MirrorTransform(params.get("mirror_axes"), data_key=target_key))
+        tr_transforms.append(MirrorTransform(params.get("mirror_axes"), data_key=target_key, label_key=label_key))
+
+    if params.get("mask_was_used_for_normalization") is not None:
+        mask_was_used_for_normalization = params.get("mask_was_used_for_normalization")
+        tr_transforms.append(MaskTransform(mask_was_used_for_normalization, mask_idx_in_seg=0, set_outside_to=0))
+
+    if label_key is not None:
+        tr_transforms.append(RemoveLabelTransform(-1, 0))
+
+        if params.get("move_last_seg_chanel_to_data") is not None and params.get("move_last_seg_chanel_to_data"):
+            tr_transforms.append(MoveSegAsOneHotToData(1, params.get("all_segmentation_labels"), label_key, target_key))
 
     return tr_transforms
 
 
 def get_contrastive_augmentation(dataloader_train, patch_size, params=default_3D_augmentation_params,
-                              seeds_train=None, pin_memory=True):
+                              seeds_train=None, pin_memory=True, detcon=False):
 
     assert params.get('mirror') is None, "old version of params, use new keyword do_mirror"
 
@@ -98,10 +110,21 @@ def get_contrastive_augmentation(dataloader_train, patch_size, params=default_3D
     tr_transforms.append(RenameTransform('data', 'data1', False))
     tr_transforms.append(RenameTransform('data', 'data2', True))
 
-    tr_transforms = get_augs(tr_transforms, target_key='data1', patch_size_spatial=patch_size_spatial, ignore_axes=ignore_axes)
-    tr_transforms = get_augs(tr_transforms, target_key='data2', patch_size_spatial=patch_size_spatial, ignore_axes=ignore_axes)
+    if detcon:
+        tr_transforms.append(RenameTransform('seg', 'mask1', False))
+        tr_transforms.append(RenameTransform('seg', 'mask2', True))
+
+    if detcon:
+        tr_transforms = get_augs(tr_transforms, target_key='data1', label_key='mask1', patch_size_spatial=patch_size_spatial, ignore_axes=ignore_axes)
+        tr_transforms = get_augs(tr_transforms, target_key='data2', label_key='mask2', patch_size_spatial=patch_size_spatial, ignore_axes=ignore_axes)
+    else:
+        tr_transforms = get_augs(tr_transforms, target_key='data1', patch_size_spatial=patch_size_spatial, ignore_axes=ignore_axes)
+        tr_transforms = get_augs(tr_transforms, target_key='data2', patch_size_spatial=patch_size_spatial, ignore_axes=ignore_axes)
 
     tr_transforms.append(NumpyToTensor(['data1', 'data2'], 'float'))
+    if detcon:
+        tr_transforms.append(NumpyToTensor(['mask1', 'mask2'], 'float'))
+        
     tr_transforms = Compose(tr_transforms)
 
     batchgenerator_train = MultiThreadedAugmenter(dataloader_train, tr_transforms, params.get('num_threads'),

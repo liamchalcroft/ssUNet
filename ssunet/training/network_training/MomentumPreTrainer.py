@@ -72,6 +72,7 @@ class MomentumPreTrainer(NetworkPreTrainer):
         self.extractor = extractor
         self.base_tau = base_tau
         self.final_tau = final_tau
+        self.detcon = None
 
         self.momentum_pairs = []
 
@@ -144,7 +145,8 @@ class MomentumPreTrainer(NetworkPreTrainer):
                     self.data_aug_params[
                         'patch_size_for_spatialtransform'],
                     self.data_aug_params,
-                    pin_memory=self.pin_memory
+                    pin_memory=self.pin_memory,
+                    detcon=self.detcon
                 )
                 self.print_to_log_file("TRAINING KEYS:\n %s" % (str(self.dataset.keys())),
                                        also_print_to_console=False)
@@ -305,6 +307,30 @@ class MomentumPreTrainer(NetworkPreTrainer):
         if torch.cuda.is_available():
             data1 = to_cuda(data1)
             data2 = to_cuda(data2)
+        if self.detcon:
+            mask1 = data_dict['mask1']
+            mask2 = data_dict['mask2']
+            mask1 = maybe_to_torch(mask1)
+            mask2 = maybe_to_torch(mask2)
+            if torch.cuda.is_available():
+                mask1 = to_cuda(mask1)
+                mask2 = to_cuda(mask2)
+
+        import matplotlib.pyplot as plt
+        plt.subplot(221)
+        plt.imshow(data1[0,0])
+        plt.axis('off')
+        plt.subplot(222)
+        plt.imshow(data2[0,0])
+        plt.axis('off')
+        if self.detcon:
+            plt.subplot(223)
+            plt.imshow(mask1[0,0])
+            plt.axis('off')
+            plt.subplot(224)
+            plt.imshow(mask2[0,0])
+            plt.axis('off')
+        plt.savefig('/Users/liamchalcroft/Desktop/MRES/ssunet-test/test.png')
 
         self.optimizer.zero_grad()
 
@@ -313,7 +339,7 @@ class MomentumPreTrainer(NetworkPreTrainer):
                 output1 = self.network(data1)
                 output2 = self.momentum_network(data2)
                 del data1, data2
-                l = self.loss(output1, output2)
+                l = self.loss(output1, output2, mask1, mask2) if self.detcon else self.loss(output1, output2)
 
             if do_backprop:
                 self.amp_grad_scaler.scale(l).backward()
@@ -325,7 +351,7 @@ class MomentumPreTrainer(NetworkPreTrainer):
             output1 = self.network(data1)
             output2 = self.momentum_network(data2)
             del data1, data2
-            l = self.loss(output1, output2)
+            l = self.loss(output1, output2, mask1, mask2) if self.detcon else self.loss(output1, output2)
 
             if do_backprop:
                 l.backward()
@@ -490,6 +516,16 @@ class MomentumPreTrainer(NetworkPreTrainer):
         view1 = view1.view(view1.size(0), view1.size(1), -1)
         view2 = view2.view(view2.size(0), view2.size(1), -1)
 
+        if mask1.size(1)==1 and mask2.size(1)==1:
+            mask1 = torch.nn.functional.one_hot(mask1.long()).float()
+            mask2 = torch.nn.functional.one_hot(mask2.long()).float()
+            if self.threeD:
+                mask1 = mask1.permute(0,5,2,3,4,1)[...,0]
+                mask2 = mask2.permute(0,5,2,3,4,1)[...,0]
+            else:
+                mask1 = mask1.permute(0,4,2,3,1)[...,0]
+                mask2 = mask2.permute(0,4,2,3,1)[...,0]
+
         ch = mask1.size(1)
 
         mask1 = pool(mask1, output_size=shape1)
@@ -543,6 +579,7 @@ class GC_MomentumPreTrainer(GradCachePreTrainer):
         self.extractor = extractor
         self.base_tau = base_tau
         self.final_tau = final_tau
+        self.detcon = None
 
         self.momentum_pairs = []
 
@@ -615,7 +652,8 @@ class GC_MomentumPreTrainer(GradCachePreTrainer):
                     self.data_aug_params[
                         'patch_size_for_spatialtransform'],
                     self.data_aug_params,
-                    pin_memory=self.pin_memory
+                    pin_memory=self.pin_memory,
+                    detcon=self.detcon
                 )
                 self.print_to_log_file("TRAINING KEYS:\n %s" % (str(self.dataset.keys())),
                                        also_print_to_console=False)
@@ -1072,6 +1110,16 @@ class GC_MomentumPreTrainer(GradCachePreTrainer):
 
         view1 = view1.view(view1.size(0), view1.size(1), -1)
         view2 = view2.view(view2.size(0), view2.size(1), -1)
+
+        if mask1.size(1)==1 and mask2.size(1)==1:
+            mask1 = torch.nn.functional.one_hot(mask1.long()).float()
+            mask2 = torch.nn.functional.one_hot(mask2.long()).float()
+            if self.threeD:
+                mask1 = mask1.permute(0,5,2,3,4,1)[...,0]
+                mask2 = mask2.permute(0,5,2,3,4,1)[...,0]
+            else:
+                mask1 = mask1.permute(0,4,2,3,1)[...,0]
+                mask2 = mask2.permute(0,4,2,3,1)[...,0]
 
         ch = mask1.size(1)
 

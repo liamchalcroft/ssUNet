@@ -21,9 +21,9 @@ from batchgenerators.transforms.color_transforms import BrightnessMultiplicative
 from batchgenerators.transforms.noise_transforms import GaussianNoiseTransform, GaussianBlurTransform
 from batchgenerators.transforms.resample_transforms import SimulateLowResolutionTransform
 from batchgenerators.transforms.spatial_transforms import SpatialTransform, MirrorTransform
-from batchgenerators.transforms.utility_transforms import RenameTransform, NumpyToTensor
+from batchgenerators.transforms.utility_transforms import RenameTransform, NumpyToTensor, RemoveLabelTransform
 from ssunet.training.data_augmentation.custom_transforms import Convert3DTo2DTransform, Convert2DTo3DTransform, \
-    MaskTransform, RemoveLabelTransform, MoveSegAsOneHotToData
+    MaskTransform, MoveSegAsOneHotToData, TestTransform
 from ssunet.training.data_augmentation.default_data_augmentation import default_3D_augmentation_params
 
 
@@ -75,12 +75,10 @@ def get_augs(tr_transforms=[], target_key='data', label_key=None,
     if params.get("do_mirror") or params.get("mirror"):
         tr_transforms.append(MirrorTransform(params.get("mirror_axes"), data_key=target_key, label_key=label_key))
 
-    if params.get("mask_was_used_for_normalization") is not None:
-        mask_was_used_for_normalization = params.get("mask_was_used_for_normalization")
-        tr_transforms.append(MaskTransform(mask_was_used_for_normalization, mask_idx_in_seg=0, set_outside_to=0))
+    # TODO: add back the MaskTransform to mask zeros in background
 
     if label_key is not None:
-        tr_transforms.append(RemoveLabelTransform(-1, 0))
+        tr_transforms.append(RemoveLabelTransform(-1, 0, input_key=label_key, output_key=label_key))
 
         if params.get("move_last_seg_chanel_to_data") is not None and params.get("move_last_seg_chanel_to_data"):
             tr_transforms.append(MoveSegAsOneHotToData(1, params.get("all_segmentation_labels"), label_key, target_key))
@@ -110,11 +108,11 @@ def get_contrastive_augmentation(dataloader_train, patch_size, params=default_3D
     tr_transforms.append(RenameTransform('data', 'data1', False))
     tr_transforms.append(RenameTransform('data', 'data2', True))
 
-    if detcon:
+    if detcon in ['intra', 'inter']:
         tr_transforms.append(RenameTransform('seg', 'mask1', False))
         tr_transforms.append(RenameTransform('seg', 'mask2', True))
 
-    if detcon:
+    if detcon in ['intra', 'inter']:
         tr_transforms = get_augs(tr_transforms, target_key='data1', label_key='mask1', patch_size_spatial=patch_size_spatial, ignore_axes=ignore_axes)
         tr_transforms = get_augs(tr_transforms, target_key='data2', label_key='mask2', patch_size_spatial=patch_size_spatial, ignore_axes=ignore_axes)
     else:
@@ -122,7 +120,7 @@ def get_contrastive_augmentation(dataloader_train, patch_size, params=default_3D
         tr_transforms = get_augs(tr_transforms, target_key='data2', patch_size_spatial=patch_size_spatial, ignore_axes=ignore_axes)
 
     tr_transforms.append(NumpyToTensor(['data1', 'data2'], 'float'))
-    if detcon:
+    if detcon in ['intra', 'inter']:
         tr_transforms.append(NumpyToTensor(['mask1', 'mask2'], 'float'))
         
     tr_transforms = Compose(tr_transforms)

@@ -66,6 +66,7 @@ class ContrastivePreTrainer(NetworkPreTrainer):
         self.freeze_encoder = freeze_encoder
         self.freeze_decoder = freeze_decoder
         self.extractor = extractor
+        self.detcon = None
 
         self.plans = None
 
@@ -134,7 +135,8 @@ class ContrastivePreTrainer(NetworkPreTrainer):
                     self.data_aug_params[
                         'patch_size_for_spatialtransform'],
                     self.data_aug_params,
-                    pin_memory=self.pin_memory
+                    pin_memory=self.pin_memory,
+                    detcon=self.detcon
                 )
                 self.print_to_log_file("TRAINING KEYS:\n %s" % (str(self.dataset.keys())),
                                        also_print_to_console=False)
@@ -446,6 +448,7 @@ class GC_ContrastivePreTrainer(GradCachePreTrainer):
         self.freeze_encoder = freeze_encoder
         self.freeze_decoder = freeze_decoder
         self.extractor = extractor
+        self.detcon = None
 
         self.plans = None
 
@@ -514,7 +517,8 @@ class GC_ContrastivePreTrainer(GradCachePreTrainer):
                     self.data_aug_params[
                         'patch_size_for_spatialtransform'],
                     self.data_aug_params,
-                    pin_memory=self.pin_memory
+                    pin_memory=self.pin_memory,
+                    detcon=self.detcon
                 )
                 self.print_to_log_file("TRAINING KEYS:\n %s" % (str(self.dataset.keys())),
                                        also_print_to_console=False)

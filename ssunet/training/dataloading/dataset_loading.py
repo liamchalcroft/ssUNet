@@ -195,7 +195,7 @@ class DataLoader3D(SlimDataLoaderBase):
         self.memmap_mode = memmap_mode
         self.num_channels = None
         self.pad_sides = pad_sides
-        self.data_shape = self.determine_shapes()
+        self.data_shape, self.seg_shape = self.determine_shapes()
 
     def get_do_oversample(self, batch_idx):
         return not batch_idx < round(self.batch_size * (1 - self.oversample_foreground_percent))
@@ -208,11 +208,13 @@ class DataLoader3D(SlimDataLoaderBase):
             case_all_data = np.load(self._data[k]['data_file'])['data']
         num_color_channels = case_all_data.shape[0] - 1
         data_shape = (self.batch_size, num_color_channels, *self.patch_size)
-        return data_shape
+        seg_shape = (self.batch_size, 1, *self.patch_size)
+        return data_shape, seg_shape
 
     def generate_train_batch(self):
         selected_keys = np.random.choice(self.list_of_keys, self.batch_size, True, None)
         data = np.zeros(self.data_shape, dtype=np.float32)
+        seg = np.zeros(self.seg_shape, dtype=np.float32)
         case_properties = []
         for j, i in enumerate(selected_keys):
             # oversampling foreground will improve stability of model training, especially if many patches are empty
@@ -322,7 +324,20 @@ class DataLoader3D(SlimDataLoaderBase):
                                                   (-min(0, bbox_z_lb), max(bbox_z_ub - shape[2], 0))),
                              self.pad_mode, **self.pad_kwargs_data)
 
-        return {'data': data, 'properties': case_properties, 'keys': selected_keys}
+
+            data[j] = np.pad(case_all_data[:-1], ((0, 0),
+                                        (-min(0, bbox_x_lb), max(bbox_x_ub - shape[0], 0)),
+                                        (-min(0, bbox_y_lb), max(bbox_y_ub - shape[1], 0)),
+                                        (-min(0, bbox_z_lb), max(bbox_z_ub - shape[2], 0))),
+                                         self.pad_mode, **self.pad_kwargs_data)
+
+            seg[j, 0] = np.pad(case_all_data[-1:], ((0, 0),
+                                        (-min(0, bbox_x_lb), max(bbox_x_ub - shape[0], 0)),
+                                        (-min(0, bbox_y_lb), max(bbox_y_ub - shape[1], 0)),
+                                        (-min(0, bbox_z_lb), max(bbox_z_ub - shape[2], 0))),
+                                        'constant', **{'constant_values': -1})
+
+        return {'data': data, 'seg': seg, 'properties': case_properties, 'keys': selected_keys}
 
 
 class DataLoader2D(SlimDataLoaderBase):
@@ -370,7 +385,7 @@ class DataLoader2D(SlimDataLoaderBase):
                 pad_sides = np.array(pad_sides)
             self.need_to_pad += pad_sides
         self.pad_sides = pad_sides
-        self.data_shape = self.determine_shapes()
+        self.data_shape, self.seg_shape = self.determine_shapes()
 
     def determine_shapes(self):
         k = list(self._data.keys())[0]
@@ -380,7 +395,8 @@ class DataLoader2D(SlimDataLoaderBase):
             case_all_data = np.load(self._data[k]['data_file'])['data']
         num_color_channels = case_all_data.shape[0] - 1
         data_shape = (self.batch_size, num_color_channels, *self.patch_size)
-        return data_shape
+        seg_shape = (self.batch_size, 1, *self.patch_size)
+        return data_shape, seg_shape
 
     def get_do_oversample(self, batch_idx):
         return not batch_idx < round(self.batch_size * (1 - self.oversample_foreground_percent))
@@ -389,6 +405,7 @@ class DataLoader2D(SlimDataLoaderBase):
         selected_keys = np.random.choice(self.list_of_keys, self.batch_size, True, None)
 
         data = np.zeros(self.data_shape, dtype=np.float32)
+        seg = np.zeros(self.seg_shape, dtype=np.float32)
 
         case_properties = []
         for j, i in enumerate(selected_keys):
@@ -513,15 +530,19 @@ class DataLoader2D(SlimDataLoaderBase):
             case_all_data = case_all_data[:, valid_bbox_x_lb:valid_bbox_x_ub,
                             valid_bbox_y_lb:valid_bbox_y_ub]
 
-            case_all_data_donly = np.pad(case_all_data[:-1], ((0, 0),
-                                                              (-min(0, bbox_x_lb), max(bbox_x_ub - shape[0], 0)),
-                                                              (-min(0, bbox_y_lb), max(bbox_y_ub - shape[1], 0))),
+            data[j] = np.pad(case_all_data[:-1], ((0, 0),
+                                        (-min(0, bbox_x_lb), max(bbox_x_ub - shape[0], 0)),
+                                        (-min(0, bbox_y_lb), max(bbox_y_ub - shape[1], 0))),
                                          self.pad_mode, **self.pad_kwargs_data)
 
-            data[j] = case_all_data_donly
+            seg[j, 0] = np.pad(case_all_data[-1:], ((0, 0),
+                                        (-min(0, bbox_x_lb), max(bbox_x_ub - shape[0], 0)),
+                                        (-min(0, bbox_y_lb), max(bbox_y_ub - shape[1], 0))),
+                                        'constant', **{'constant_values': -1})
+
 
         keys = selected_keys
-        return {'data': data, 'properties': case_properties, "keys": keys}
+        return {'data': data, 'seg': seg, 'properties': case_properties, "keys": keys}
 
 
 if __name__ == "__main__":

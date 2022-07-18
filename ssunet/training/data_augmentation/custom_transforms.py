@@ -44,10 +44,14 @@ class MaskTransform(AbstractTransform):
         self.mask_idx_in_seg = mask_idx_in_seg
 
     def __call__(self, **data_dict):
+        print(data_dict.keys())
         seg = data_dict.get(self.seg_key)
+        print(self.seg_key, seg.shape)
         if seg is None or seg.shape[1] < self.mask_idx_in_seg:
             raise Warning("mask not found, seg may be missing or seg[:, mask_idx_in_seg] may not exist")
         data = data_dict.get(self.data_key)
+        print(self.data_key, data.shape)
+        print(self.dct_for_where_it_was_used)
         for b in range(data.shape[0]):
             mask = seg[b, self.mask_idx_in_seg]
             for c in range(data.shape[1]):
@@ -123,6 +127,31 @@ class ConvertSegmentationToRegionsTransform(AbstractTransform):
         return data_dict
 
 
+class MoveSegAsOneHotToData(AbstractTransform):
+    def __init__(self, channel_id, all_seg_labels, key_origin="seg", key_target="data", remove_from_origin=True):
+        self.remove_from_origin = remove_from_origin
+        self.all_seg_labels = all_seg_labels
+        self.key_target = key_target
+        self.key_origin = key_origin
+        self.channel_id = channel_id
+
+    def __call__(self, **data_dict):
+        origin = data_dict.get(self.key_origin)
+        target = data_dict.get(self.key_target)
+        seg = origin[:, self.channel_id:self.channel_id+1]
+        seg_onehot = np.zeros((seg.shape[0], len(self.all_seg_labels), *seg.shape[2:]), dtype=seg.dtype)
+        for i, l in enumerate(self.all_seg_labels):
+            seg_onehot[:, i][seg[:, 0] == l] = 1
+        target = np.concatenate((target, seg_onehot), 1)
+        data_dict[self.key_target] = target
+
+        if self.remove_from_origin:
+            remaining_channels = [i for i in range(origin.shape[1]) if i != self.channel_id]
+            origin = origin[:, remaining_channels]
+            data_dict[self.key_origin] = origin
+        return data_dict
+
+
 class ScaledNoiseTransform(AbstractTransform):
     def __init__(self, noise_variance=0.8, gamma=0.95, p_per_sample=1, data_key="data", return_noise_vec=False):
         """
@@ -175,3 +204,18 @@ class ScaledNoiseTransform(AbstractTransform):
 
     def sample_dist(self, arg):
         return arg[0] if arg[0] == arg[1] else random.uniform(arg[0], arg[1])
+
+
+class TestTransform(AbstractTransform):
+    def __init__(self):
+        pass
+
+    def __call__(self, **data_dict):
+        print()
+        for key in data_dict.keys():
+            print(key+': ', type(data_dict[key]))
+            try:
+                print(data_dict[key].shape)
+            except:
+                pass
+        return data_dict

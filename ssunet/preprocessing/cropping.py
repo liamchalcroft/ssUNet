@@ -167,6 +167,7 @@ class ImageCropper(object):
                 for c in case:
                     if 'labelsTr' in c:
                         segs = True
+                print('segs: ', segs)
 
                 data, seg, properties = self.crop_from_list_of_files(case[:-1], case[-1]) if segs else self.crop_from_list_of_files(data_files=case, seg_file=None)
 

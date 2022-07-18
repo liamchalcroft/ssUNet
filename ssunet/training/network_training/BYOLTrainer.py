@@ -35,6 +35,7 @@ from sklearn.model_selection import KFold
 from torch import nn
 from torch.cuda.amp import autocast
 from ssunet.training.learning_rate.poly_lr import poly_lr
+from ssunet.training.network_training.custom_layer import BatchNormDimSwap
 from batchgenerators.utilities.file_and_folder_operations import *
 
 from solo.losses.byol import byol_loss_func
@@ -61,14 +62,18 @@ class BYOLTrainer(MomentumPreTrainer):
 
         self.projector = nn.Sequential(
             torch.nn.Linear(320 if self.threeD else 480, proj_hidden_dim),
+            BatchNormDimSwap(),
             torch.nn.BatchNorm1d(proj_hidden_dim),
+            BatchNormDimSwap(),
             torch.nn.ReLU(),
             torch.nn.Linear(proj_hidden_dim, proj_output_dim),
         )
 
         self.momentum_projector = nn.Sequential(
             torch.nn.Linear(320 if self.threeD else 480, proj_hidden_dim),
+            BatchNormDimSwap(),
             torch.nn.BatchNorm1d(proj_hidden_dim),
+            BatchNormDimSwap(),
             torch.nn.ReLU(),
             torch.nn.Linear(proj_hidden_dim, proj_output_dim),
         )
@@ -77,7 +82,9 @@ class BYOLTrainer(MomentumPreTrainer):
 
         self.predictor = nn.Sequential(
             torch.nn.Linear(proj_output_dim, pred_hidden_dim),
+            BatchNormDimSwap(),
             torch.nn.BatchNorm1d(pred_hidden_dim),
+            BatchNormDimSwap(),
             torch.nn.ReLU(),
             torch.nn.Linear(pred_hidden_dim, proj_output_dim),
         )
@@ -91,7 +98,7 @@ class BYOLTrainer(MomentumPreTrainer):
         self.lr_scheduler = None
 
     def loss(self, view1, view2, mask1=None, mask2=None):
-        if self.detcon: # pool by multiplying images with 
+        if self.detcon: # pool by multiplying images with masks
             view1, view2 = self.detcon_views(view1, view2, mask1, mask2)
         else:
             view1 = view1.view(view1.size(0), view1.size(1), -1).mean(dim=2)
@@ -105,8 +112,8 @@ class BYOLTrainer(MomentumPreTrainer):
             z1 = z1.view(z1.size(0)*z1.size(1), -1)
             z2 = z2.view(z2.size(0)*z2.size(1), -1)
         elif self.detcon=='inter': # treat each class as batch and original batch as features - same class if diff images treated as same image
-            z1 = z1.permute(1,0,2).view(z1.size(1), -1)
-            z2 = z2.permute(1,0,2).view(z2.size(1), -1)
+            z1 = z1.permute(1,0,2).reshape(z1.size(1), -1)
+            z2 = z2.permute(1,0,2).reshape(z2.size(1), -1)
 
         byol_loss = byol_loss_func(z1,z2)
 
@@ -165,7 +172,7 @@ class GC_BYOLTrainer(GC_MomentumPreTrainer):
 
     @cat_input_tensor
     def loss(self, view1, view2, mask1=None, mask2=None):
-        if self.detcon: # pool by multiplying images with 
+        if self.detcon: # pool by multiplying images with masks
             view1, view2 = self.detcon_views(view1, view2, mask1, mask2)
         else:
             view1 = view1.view(view1.size(0), view1.size(1), -1).mean(dim=2)
@@ -179,8 +186,8 @@ class GC_BYOLTrainer(GC_MomentumPreTrainer):
             z1 = z1.view(z1.size(0)*z1.size(1), -1)
             z2 = z2.view(z2.size(0)*z2.size(1), -1)
         elif self.detcon=='inter': # treat each class as batch and original batch as features - same class if diff images treated as same image
-            z1 = z1.permute(1,0,2).view(z1.size(1), -1)
-            z2 = z2.permute(1,0,2).view(z2.size(1), -1)
+            z1 = z1.permute(1,0,2).reshape(z1.size(1), -1)
+            z2 = z2.permute(1,0,2).reshape(z2.size(1), -1)
 
         byol_loss = byol_loss_func(z1,z2)
 

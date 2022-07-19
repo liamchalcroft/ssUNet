@@ -295,7 +295,7 @@ class MomentumPreTrainer(NetworkPreTrainer):
     def update_momentum(self):
         momentum_pairs = self.momentum_pairs
         for mp in momentum_pairs:
-            self.momentum_updater(*mp)
+            self.momentum_updater.update(*mp)
         self.momentum_updater.update_tau(cur_step=self.epch, max_steps=self.max_num_epochs)
 
     def run_iteration(self, data_generator, do_backprop=True):
@@ -318,17 +318,17 @@ class MomentumPreTrainer(NetworkPreTrainer):
 
         import matplotlib.pyplot as plt
         plt.subplot(221)
-        plt.imshow(data1[0,0])
+        plt.imshow(data1[0,0,50])
         plt.axis('off')
         plt.subplot(222)
-        plt.imshow(data2[0,0])
+        plt.imshow(data2[0,0,50])
         plt.axis('off')
         if self.detcon:
             plt.subplot(223)
-            plt.imshow(mask1[0,0])
+            plt.imshow(mask1[0,0,50])
             plt.axis('off')
             plt.subplot(224)
-            plt.imshow(mask2[0,0])
+            plt.imshow(mask2[0,0,50])
             plt.axis('off')
         plt.savefig('/Users/liamchalcroft/Desktop/MRES/ssunet-test/test.png')
 
@@ -802,7 +802,7 @@ class GC_MomentumPreTrainer(GradCachePreTrainer):
     def update_momentum(self):
         momentum_pairs = self.momentum_pairs
         for mp in momentum_pairs:
-            self.momentum_updater(*mp)
+            self.momentum_updater.update(*mp)
         self.momentum_updater.update_tau(cur_step=self.epch, max_steps=self.max_num_epochs)
 
     def run_training(self):

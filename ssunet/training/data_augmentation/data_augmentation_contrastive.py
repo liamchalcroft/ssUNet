@@ -15,7 +15,7 @@
 from cProfile import label
 from batchgenerators.dataloading.multi_threaded_augmenter import MultiThreadedAugmenter
 from batchgenerators.transforms.abstract_transforms import Compose
-from batchgenerators.transforms.channel_selection_transforms import DataChannelSelectionTransform
+from batchgenerators.transforms.channel_selection_transforms import DataChannelSelectionTransform, SegChannelSelectionTransform
 from batchgenerators.transforms.color_transforms import BrightnessMultiplicativeTransform, \
     ContrastAugmentationTransform, BrightnessTransform, GammaTransform
 from batchgenerators.transforms.noise_transforms import GaussianNoiseTransform, GaussianBlurTransform
@@ -43,7 +43,7 @@ def get_augs(tr_transforms=[], target_key='data', label_key=None,
         p_independent_scale_per_axis=params.get("p_independent_scale_per_axis"), data_key=target_key, label_key=label_key))
 
     if params.get("dummy_2D"):
-        tr_transforms.append(Convert2DTo3DTransform())
+        tr_transforms.append(Convert2DTo3DTransform(target_key, label_key))
 
     # we need to put the color augmentations after the dummy 2d part (if applicable). Otherwise the overloaded color
     # channel gets in the way
@@ -95,15 +95,7 @@ def get_contrastive_augmentation(dataloader_train, patch_size, params=default_3D
 
     if params.get("selected_data_channels") is not None:
         tr_transforms.append(DataChannelSelectionTransform(params.get("selected_data_channels")))
-
-    # don't do color augmentations while in 2d mode with 3d data because the color channel is overloaded!!
-    if params.get("dummy_2D") is not None and params.get("dummy_2D"):
-        ignore_axes = (0,)
-        tr_transforms.append(Convert3DTo2DTransform())
-        patch_size_spatial = patch_size[1:]
-    else:
-        patch_size_spatial = patch_size
-        ignore_axes = None
+    # tr_transforms.append(SegChannelSelectionTransform(0))
 
     tr_transforms.append(RenameTransform('data', 'data1', False))
     tr_transforms.append(RenameTransform('data', 'data2', True))
@@ -112,11 +104,27 @@ def get_contrastive_augmentation(dataloader_train, patch_size, params=default_3D
         tr_transforms.append(RenameTransform('seg', 'mask1', False))
         tr_transforms.append(RenameTransform('seg', 'mask2', True))
 
+    # don't do color augmentations while in 2d mode with 3d data because the color channel is overloaded!!
+    if params.get("dummy_2D") is not None and params.get("dummy_2D"):
+        ignore_axes = (0,)
+        patch_size_spatial = patch_size[1:]
+    else:
+        patch_size_spatial = patch_size
+        ignore_axes = None
+
     if detcon in ['intra', 'inter']:
+        if params.get("dummy_2D") is not None and params.get("dummy_2D"):
+            tr_transforms.append(Convert3DTo2DTransform('data1', 'mask1'))
         tr_transforms = get_augs(tr_transforms, target_key='data1', label_key='mask1', patch_size_spatial=patch_size_spatial, ignore_axes=ignore_axes)
+        if params.get("dummy_2D") is not None and params.get("dummy_2D"):
+            tr_transforms.append(Convert3DTo2DTransform('data2', 'mask2'))
         tr_transforms = get_augs(tr_transforms, target_key='data2', label_key='mask2', patch_size_spatial=patch_size_spatial, ignore_axes=ignore_axes)
     else:
+        if params.get("dummy_2D") is not None and params.get("dummy_2D"):
+            tr_transforms.append(Convert3DTo2DTransform('data1'))
         tr_transforms = get_augs(tr_transforms, target_key='data1', patch_size_spatial=patch_size_spatial, ignore_axes=ignore_axes)
+        if params.get("dummy_2D") is not None and params.get("dummy_2D"):
+            tr_transforms.append(Convert3DTo2DTransform('data2'))
         tr_transforms = get_augs(tr_transforms, target_key='data2', patch_size_spatial=patch_size_spatial, ignore_axes=ignore_axes)
 
     tr_transforms.append(NumpyToTensor(['data1', 'data2'], 'float'))

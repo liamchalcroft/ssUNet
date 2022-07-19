@@ -61,40 +61,44 @@ class MaskTransform(AbstractTransform):
         return data_dict
 
 
-def convert_3d_to_2d_generator(data_dict):
-    shp = data_dict['data'].shape
-    data_dict['data'] = data_dict['data'].reshape((shp[0], shp[1] * shp[2], shp[3], shp[4]))
+def convert_3d_to_2d_generator(data_dict, data_key='data', label_key=None):
+    shp = data_dict[data_key].shape
+    data_dict[data_key] = data_dict[data_key].reshape((shp[0], shp[1] * shp[2], shp[3], shp[4]))
     data_dict['orig_shape_data'] = shp
-    shp = data_dict['seg'].shape
-    data_dict['seg'] = data_dict['seg'].reshape((shp[0], shp[1] * shp[2], shp[3], shp[4]))
-    data_dict['orig_shape_seg'] = shp
+    if label_key is not None:
+        shp = data_dict[label_key].shape
+        data_dict[label_key] = data_dict[label_key].reshape((shp[0], shp[1] * shp[2], shp[3], shp[4]))
+        data_dict['orig_shape_seg'] = shp
     return data_dict
 
 
-def convert_2d_to_3d_generator(data_dict):
+def convert_2d_to_3d_generator(data_dict, data_key='data', label_key=None):
     shp = data_dict['orig_shape_data']
-    current_shape = data_dict['data'].shape
-    data_dict['data'] = data_dict['data'].reshape((shp[0], shp[1], shp[2], current_shape[-2], current_shape[-1]))
-    shp = data_dict['orig_shape_seg']
-    current_shape_seg = data_dict['seg'].shape
-    data_dict['seg'] = data_dict['seg'].reshape((shp[0], shp[1], shp[2], current_shape_seg[-2], current_shape_seg[-1]))
+    current_shape = data_dict[data_key].shape
+    data_dict[data_key] = data_dict[data_key].reshape((shp[0], shp[1], shp[2], current_shape[-2], current_shape[-1]))
+    if label_key is not None:
+        shp = data_dict['orig_shape_seg']
+        current_shape_seg = data_dict[label_key].shape
+        data_dict[label_key] = data_dict[label_key].reshape((shp[0], shp[1], shp[2], current_shape_seg[-2], current_shape_seg[-1]))
     return data_dict
 
 
 class Convert3DTo2DTransform(AbstractTransform):
-    def __init__(self):
-        pass
+    def __init__(self, data_key='data', label_key=None):
+        self.data_key = data_key
+        self.label_key = label_key
 
     def __call__(self, **data_dict):
-        return convert_3d_to_2d_generator(data_dict)
+        return convert_3d_to_2d_generator(data_dict, self.data_key, self.label_key)
 
 
 class Convert2DTo3DTransform(AbstractTransform):
-    def __init__(self):
-        pass
+    def __init__(self, data_key='data', label_key=None):
+        self.data_key = data_key
+        self.label_key = label_key
 
     def __call__(self, **data_dict):
-        return convert_2d_to_3d_generator(data_dict)
+        return convert_2d_to_3d_generator(data_dict, self.data_key, self.label_key)
 
 
 class ConvertSegmentationToRegionsTransform(AbstractTransform):

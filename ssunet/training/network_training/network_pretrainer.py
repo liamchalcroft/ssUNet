@@ -42,19 +42,11 @@ from solo.utils.knn import WeightedKNNClassifier
 class NetworkPreTrainer(object):
     def __init__(self, deterministic=True, fp16=False):
         """
-        A generic class that can train almost any neural network (RNNs excluded). It provides basic functionality such
-        as the training loop, tracking of training and validation losses (and the target metric if you implement it)
-        Training can be terminated early if the validation loss (or the target metric if implemented) do not improve
-        anymore. This is based on a moving average (MA) of the loss/metric instead of the raw values to get more smooth
-        results.
+        Modification of nnUNet's NetworkTrainer class - no val/segmentation steps and added options relevant to SSL.
 
-        What you need to override:
+        What you need to override (WIP):
         - __init__
         - initialize
-        - run_online_evaluation (optional)
-        - finish_online_evaluation (optional)
-        - validate
-        - predict_test_case
         """
         self.fp16 = fp16
         self.amp_grad_scaler = None

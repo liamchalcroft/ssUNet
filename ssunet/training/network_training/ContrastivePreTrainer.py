@@ -641,7 +641,7 @@ class GC_ContrastivePreTrainer(GradCachePreTrainer):
         else:
             self.do_dummy_2D_aug = False
             if max(self.patch_size) / min(self.patch_size) > 1.5:
-                default_2D_augmentation_params['rotation_x'] = (-15. / 360 * 2. * np.pi, 15. / 360 * 2. * np.pi)
+                default_2D_augmentation_params['rotation_x'] = (-180. / 360 * 2. * np.pi, 180. / 360 * 2. * np.pi)
             self.data_aug_params = default_2D_augmentation_params
         self.data_aug_params["mask_was_used_for_normalization"] = self.use_mask_for_norm
 
@@ -658,9 +658,17 @@ class GC_ContrastivePreTrainer(GradCachePreTrainer):
                                                              self.data_aug_params['rotation_z'],
                                                              self.data_aug_params['scale_range'])
 
-        self.data_aug_params["scale_range"] = (0.7, 1.4)
-        self.data_aug_params["do_elastic"] = False
+        self.data_aug_params["scale_range"] = (0.65, 1.6)
+
+        self.data_aug_params["do_elastic"] = True
+        self.data_aug_params["elastic_deform_alpha"] = (0., 1300.)
+        self.data_aug_params["elastic_deform_sigma"] = (9., 15.)
+        self.data_aug_params["p_eldef"] = 0.2
+
         self.data_aug_params['selected_seg_channels'] = [0]
+
+        self.data_aug_params['gamma_range'] = (0.6, 2)
+
         self.data_aug_params['patch_size_for_spatialtransform'] = self.patch_size
 
         self.data_aug_params["num_cached_per_thread"] = 2

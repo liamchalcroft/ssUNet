@@ -18,7 +18,7 @@ from batchgenerators.transforms.abstract_transforms import Compose
 from batchgenerators.transforms.channel_selection_transforms import DataChannelSelectionTransform, SegChannelSelectionTransform
 from batchgenerators.transforms.color_transforms import BrightnessMultiplicativeTransform, \
     ContrastAugmentationTransform, BrightnessTransform, GammaTransform
-from batchgenerators.transforms.noise_transforms import GaussianNoiseTransform, GaussianBlurTransform
+from batchgenerators.transforms.noise_transforms import GaussianNoiseTransform, GaussianBlurTransform, BlankSquareNoiseTransform
 from batchgenerators.transforms.resample_transforms import SimulateLowResolutionTransform
 from batchgenerators.transforms.spatial_transforms import SpatialTransform, MirrorTransform
 from batchgenerators.transforms.utility_transforms import RenameTransform, NumpyToTensor, RemoveLabelTransform
@@ -74,6 +74,9 @@ def get_augs(tr_transforms=[], target_key='data', label_key=None,
 
     if params.get("do_mirror") or params.get("mirror"):
         tr_transforms.append(MirrorTransform(params.get("mirror_axes"), data_key=target_key, label_key=label_key))
+
+    tr_transforms.append(BlankSquareNoiseTransform(squre_size=15, n_squres=20,
+                       p_per_sample=0.5, data_key=target_key, label_key=label_key))
 
     # TODO: add back the MaskTransform to mask zeros in background
 

@@ -20,42 +20,24 @@ from ssunet.training.network_training.ContrastivePreTrainer import ContrastivePr
 from ssunet.training.network_training.custom_layer import BatchNormDimSwap, NOBS
 from batchgenerators.utilities.file_and_folder_operations import *
 
+import numpy as np
 from grad_cache.functional import cat_input_tensor
 
 
-def arb_loss_func(z1, z2, shuffle=False, groups=1):
+def spectral_loss_func(z1, z2, mu=1.):
     """
-    Loss function for 'Align Representations with Base'. Adapted from https://github.com/Sherrylone/Align-Representation-with-Base
+    Loss function for 'Provable Guarantees for Self-Supervised Deep Learning with Spectral Contrastive Loss'. 
+    Adapted from https://github.com/jhaochenz/spectral_contrastive_learning/
     """
-    B = z1.size(0)
-
-    z1 = z1.transpose(0,1)
-    z2 = z2.transpose(0,1)
-
-    if shuffle:
-        idx = torch.randperm(z1.size(0))
-        z1 = z1[idx, :]
-        z2 = z2[idx, :]
-    
-    nobsnet = NOBS(groups=groups)
-
-    z1 = (z1 - z1.mean(dim=-1, keepdim=True)) / (z1.std(dim=-1, keepdim=True) + 1e-5)
-    z2 = (z2 - z2.mean(dim=-1, keepdim=True)) / (z2.std(dim=-1, keepdim=True) + 1e-5)
-
-    z1_group = nobsnet(z1).detach()
-    z2_group = nobsnet(z2).detach()
-
-    c = (z1 * z2_group).sum(dim=-1)
-    c.div_(B)
-    loss1 = c.add_(-1).pow_(2).sum()
-
-    c = (z2 * z1_group).sum(dim=-1)
-    c.div_(B)
-    loss2 = c.add_(-1).pow_(2).sum()
-
-    loss = loss1 + loss2
-    return loss
-
+    mask1 = (torch.norm(z1, p=2, dim=1) < np.sqrt(mu)).float().unsqueeze(1)
+    mask2 = (torch.norm(z2, p=2, dim=1) < np.sqrt(mu)).float().unsqueeze(1)
+    z1 = mask1 * z1 + (1-mask1) * torch.nn.functional.normalize(z1, dim=1) * np.sqrt(mu)
+    z2 = mask2 * z2 + (1-mask2) * torch.nn.functional.normalize(z2, dim=1) * np.sqrt(mu)
+    loss_part1 = -2 * torch.mean(z1 * z2) * z1.shape[1]
+    square_term = torch.matmul(z1, z2.T) ** 2
+    loss_part2 = torch.mean(torch.triu(square_term, diagonal=1) + torch.tril(square_term, diagonal=-1)) * \
+                 z1.shape[0] / (z1.shape[0] - 1)
+    return (loss_part1 + loss_part2) / mu
 
 
 class ARBTrainer(ContrastivePreTrainer):
@@ -66,7 +48,7 @@ class ARBTrainer(ContrastivePreTrainer):
                  unpack_data=True, deterministic=True, fp16=False,
                  freeze_encoder=False, freeze_decoder=True, extractor=True,
                  proj_output_dim=2048, proj_hidden_dim=2048,
-                 shuffle=True, groups=1,
+                 mu=1.,
                  detcon=False):
         super().__init__(plans_file, output_folder, dataset_directory, unpack_data,
                          deterministic, fp16, freeze_encoder, freeze_decoder, extractor)
@@ -89,8 +71,7 @@ class ARBTrainer(ContrastivePreTrainer):
             torch.nn.Linear(proj_hidden_dim, proj_output_dim),
         )
 
-        self.shuffle = shuffle 
-        self.groups = groups
+        self.mu = mu
 
     def initialize_optimizer_and_scheduler(self):
         assert self.network is not None, "self.initialize_network must be called first"
@@ -115,14 +96,14 @@ class ARBTrainer(ContrastivePreTrainer):
             z1 = z1.permute(1,0,2).reshape(z1.size(1), -1)
             z2 = z2.permute(1,0,2).reshape(z2.size(1), -1)
 
-        arb_loss = arb_loss_func(z1,z2,self.shuffle,self.groups)
+        spectral_loss = spectral_loss_func(z1,z2,self.mu)
 
         del z1, z2, view1, view2
 
-        return arb_loss
+        return spectral_loss
 
 
-class GC_ARBTrainer(GC_ContrastivePreTrainer):
+class GC_SpectralTrainer(GC_ContrastivePreTrainer):
     """
     """
 
@@ -130,7 +111,7 @@ class GC_ARBTrainer(GC_ContrastivePreTrainer):
                  unpack_data=True, deterministic=True, fp16=False,
                  freeze_encoder=False, freeze_decoder=True, extractor=True,
                  proj_output_dim=2048, proj_hidden_dim=2048,
-                 shuffle=True, groups=1, metabatch=8,
+                 mu=1., metabatch=8,
                  detcon=False):
         super().__init__(plans_file, output_folder, dataset_directory, unpack_data,
                          deterministic, fp16, freeze_encoder, freeze_decoder, extractor)
@@ -154,8 +135,7 @@ class GC_ARBTrainer(GC_ContrastivePreTrainer):
             torch.nn.Linear(proj_hidden_dim, proj_output_dim),
         )
 
-        self.shuffle = shuffle 
-        self.groups = groups
+        self.mu = mu
 
     def initialize_optimizer_and_scheduler(self):
         assert self.network is not None, "self.initialize_network must be called first"
@@ -181,8 +161,8 @@ class GC_ARBTrainer(GC_ContrastivePreTrainer):
             z1 = z1.permute(1,0,2).reshape(z1.size(1), -1)
             z2 = z2.permute(1,0,2).reshape(z2.size(1), -1)
 
-        arb_loss = arb_loss_func(z1,z2,self.shuffle,self.groups)
+        spectral_loss = spectral_loss_func(z1,z2,self.mu)
 
         del z1, z2, view1, view2
 
-        return arb_loss
+        return spectral_loss

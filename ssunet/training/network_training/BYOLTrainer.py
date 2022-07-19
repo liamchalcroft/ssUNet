@@ -13,28 +13,10 @@
 #    limitations under the License.
 
 
-from collections import OrderedDict
-from typing import Tuple
-
 from itertools import chain
 
-import numpy as np
 import torch
-from ssunet.training.data_augmentation.data_augmentation_contrastive import get_contrastive_augmentation
-from ssunet.training.loss_functions.deep_supervision import MultipleOutputLoss2
-from ssunet.utilities.to_torch import maybe_to_torch, to_cuda
-from ssunet.network_architecture.generic_UNet import ConvDropoutNormNonlin, Generic_UNet
-from ssunet.network_architecture.initialization import InitWeights_He
-from ssunet.network_architecture.neural_network import SegmentationNetwork
-from ssunet.training.data_augmentation.default_data_augmentation import default_2D_augmentation_params, \
-    get_patch_size, default_3D_augmentation_params
-from ssunet.training.dataloading.dataset_loading import unpack_dataset
 from ssunet.training.network_training.MomentumPreTrainer import MomentumPreTrainer, GC_MomentumPreTrainer
-from ssunet.utilities.nd_softmax import softmax_helper
-from sklearn.model_selection import KFold
-from torch import nn
-from torch.cuda.amp import autocast
-from ssunet.training.learning_rate.poly_lr import poly_lr
 from ssunet.training.network_training.custom_layer import BatchNormDimSwap
 from batchgenerators.utilities.file_and_folder_operations import *
 

@@ -42,7 +42,7 @@ class BYOLTrainer(MomentumPreTrainer):
         self.process_plans(self.plans)
         self.detcon = detcon
 
-        self.projector = nn.Sequential(
+        self.projector = torch.nn.Sequential(
             torch.nn.Linear(320 if self.threeD else 480, proj_hidden_dim),
             BatchNormDimSwap(),
             torch.nn.BatchNorm1d(proj_hidden_dim),
@@ -51,7 +51,7 @@ class BYOLTrainer(MomentumPreTrainer):
             torch.nn.Linear(proj_hidden_dim, proj_output_dim),
         )
 
-        self.momentum_projector = nn.Sequential(
+        self.momentum_projector = torch.nn.Sequential(
             torch.nn.Linear(320 if self.threeD else 480, proj_hidden_dim),
             BatchNormDimSwap(),
             torch.nn.BatchNorm1d(proj_hidden_dim),
@@ -62,7 +62,7 @@ class BYOLTrainer(MomentumPreTrainer):
         initialize_momentum_params(self.projector, self.momentum_projector)
         self.momentum_pairs.append((self.projector, self.momentum_projector))
 
-        self.predictor = nn.Sequential(
+        self.predictor = torch.nn.Sequential(
             torch.nn.Linear(proj_output_dim, pred_hidden_dim),
             BatchNormDimSwap(),
             torch.nn.BatchNorm1d(pred_hidden_dim),
@@ -121,14 +121,14 @@ class GC_BYOLTrainer(GC_MomentumPreTrainer):
         self.metabatch = metabatch
         self.detcon = detcon
 
-        self.projector = nn.Sequential(
+        self.projector = torch.nn.Sequential(
             torch.nn.Linear(320 if self.threeD else 480, proj_hidden_dim),
             torch.nn.BatchNorm1d(proj_hidden_dim),
             torch.nn.ReLU(),
             torch.nn.Linear(proj_hidden_dim, proj_output_dim),
         )
 
-        self.momentum_projector = nn.Sequential(
+        self.momentum_projector = torch.nn.Sequential(
             torch.nn.Linear(320 if self.threeD else 480, proj_hidden_dim),
             torch.nn.BatchNorm1d(proj_hidden_dim),
             torch.nn.ReLU(),
@@ -137,7 +137,7 @@ class GC_BYOLTrainer(GC_MomentumPreTrainer):
         initialize_momentum_params(self.projector, self.momentum_projector)
         self.momentum_pairs.append((self.projector, self.momentum_projector))
 
-        self.predictor = nn.Sequential(
+        self.predictor = torch.nn.Sequential(
             torch.nn.Linear(proj_output_dim, pred_hidden_dim),
             torch.nn.BatchNorm1d(pred_hidden_dim),
             torch.nn.ReLU(),

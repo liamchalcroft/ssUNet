@@ -316,21 +316,21 @@ class MomentumPreTrainer(NetworkPreTrainer):
                 mask1 = to_cuda(mask1)
                 mask2 = to_cuda(mask2)
 
-        import matplotlib.pyplot as plt
-        plt.subplot(221)
-        plt.imshow(data1[0,0,50])
-        plt.axis('off')
-        plt.subplot(222)
-        plt.imshow(data2[0,0,50])
-        plt.axis('off')
-        if self.detcon:
-            plt.subplot(223)
-            plt.imshow(mask1[0,0,50])
-            plt.axis('off')
-            plt.subplot(224)
-            plt.imshow(mask2[0,0,50])
-            plt.axis('off')
-        plt.savefig('/Users/liamchalcroft/Desktop/MRES/ssunet-test/test.png')
+        # import matplotlib.pyplot as plt
+        # plt.subplot(221)
+        # plt.imshow(data1[0,0,50], cmap='gray')
+        # plt.axis('off')
+        # plt.subplot(222)
+        # plt.imshow(data2[0,0,50], cmap='gray')
+        # plt.axis('off')
+        # if self.detcon:
+        #     plt.subplot(223)
+        #     plt.imshow(mask1[0,0,50], cmap='jet', vmax=5)
+        #     plt.axis('off')
+        #     plt.subplot(224)
+        #     plt.imshow(mask2[0,0,50], cmap='jet', vmax=5)
+        #     plt.axis('off')
+        # plt.savefig('/Users/liamchalcroft/Desktop/MRES/ssunet-test/test.png')
 
         self.optimizer.zero_grad()
 

@@ -296,7 +296,7 @@ class MomentumPreTrainer(NetworkPreTrainer):
         momentum_pairs = self.momentum_pairs
         for mp in momentum_pairs:
             self.momentum_updater.update(*mp)
-        self.momentum_updater.update_tau(cur_step=self.epch, max_steps=self.max_num_epochs)
+        self.momentum_updater.update_tau(cur_step=self.epoch, max_steps=self.max_num_epochs)
 
     def run_iteration(self, data_generator, do_backprop=True):
         data_dict = next(data_generator)
@@ -803,7 +803,7 @@ class GC_MomentumPreTrainer(GradCachePreTrainer):
         momentum_pairs = self.momentum_pairs
         for mp in momentum_pairs:
             self.momentum_updater.update(*mp)
-        self.momentum_updater.update_tau(cur_step=self.epch, max_steps=self.max_num_epochs)
+        self.momentum_updater.update_tau(cur_step=self.epoch, max_steps=self.max_num_epochs)
 
     def run_training(self):
         if not torch.cuda.is_available():

@@ -18,7 +18,8 @@ from batchgenerators.transforms.abstract_transforms import Compose
 from batchgenerators.transforms.channel_selection_transforms import DataChannelSelectionTransform, SegChannelSelectionTransform
 from batchgenerators.transforms.color_transforms import BrightnessMultiplicativeTransform, \
     ContrastAugmentationTransform, BrightnessTransform, GammaTransform
-from batchgenerators.transforms.noise_transforms import GaussianNoiseTransform, GaussianBlurTransform, BlankSquareNoiseTransform
+from batchgenerators.transforms.noise_transforms import GaussianNoiseTransform, GaussianBlurTransform, \
+    SharpeningTransform, BlankSquareNoiseTransform
 from batchgenerators.transforms.resample_transforms import SimulateLowResolutionTransform
 from batchgenerators.transforms.spatial_transforms import SpatialTransform, MirrorTransform
 from batchgenerators.transforms.utility_transforms import RenameTransform, NumpyToTensor, RemoveLabelTransform
@@ -48,7 +49,8 @@ def get_augs(tr_transforms=[], target_key='data', label_key=None,
     # we need to put the color augmentations after the dummy 2d part (if applicable). Otherwise the overloaded color
     # channel gets in the way
     tr_transforms.append(GaussianNoiseTransform(p_per_sample=0.15, data_key=target_key))
-    tr_transforms.append(GaussianBlurTransform((0.5, 1.5), different_sigma_per_channel=True, p_per_sample=0.2,
+    tr_transforms.append(GaussianBlurTransform((0.5, 3), different_sigma_per_channel=True, p_per_sample=0.2,
+                                               different_sigma_per_axis=True, p_isotropic=0.3,
                                                p_per_channel=0.5, data_key=target_key))
     tr_transforms.append(BrightnessMultiplicativeTransform(multiplier_range=(0.70, 1.3), p_per_sample=0.15, data_key=target_key))
     tr_transforms.append(ContrastAugmentationTransform(contrast_range=(0.65, 1.5), p_per_sample=0.15, data_key=target_key))
@@ -56,6 +58,9 @@ def get_augs(tr_transforms=[], target_key='data', label_key=None,
                                                         p_per_channel=0.5,
                                                         order_downsample=0, order_upsample=3, p_per_sample=0.25,
                                                         ignore_axes=ignore_axes, data_key=target_key))
+    tr_transforms.append(
+        SharpeningTransform(p_per_sample=0.2, data_key=target_key)
+    )
     tr_transforms.append(
         GammaTransform(params.get("gamma_range"), True, True, retain_stats=params.get("gamma_retain_stats"),
                        p_per_sample=0.15, data_key=target_key))  # inverted gamma
@@ -75,7 +80,7 @@ def get_augs(tr_transforms=[], target_key='data', label_key=None,
     if params.get("do_mirror") or params.get("mirror"):
         tr_transforms.append(MirrorTransform(params.get("mirror_axes"), data_key=target_key, label_key=label_key))
 
-    tr_transforms.append(BlankSquareNoiseTransform(squre_size=15, n_squres=20,
+    tr_transforms.append(BlankSquareNoiseTransform(squre_size=15, n_squres=20, noise_val=(-1,1),
                        p_per_sample=0.5, data_key=target_key, label_key=label_key))
 
     # TODO: add back the MaskTransform to mask zeros in background

@@ -25,7 +25,7 @@ class NOBS(nn.Module):
         x = x.view(self.groups, D//self.groups, B)
         f_cov = (torch.bmm(x, x.transpose(1, 2)) / (B - 1)).float()
         out = torch.FloatTensor(device=f_cov.device)
-        for i in f_cov.size(0):
+        for i in range(f_cov.size(0)):
             f_cov = torch.where(torch.isnan(f_cov), torch.zeros_like(f_cov), f_cov)
             U, S, V = torch.svd(f_cov[i])
             diag = torch.diag(1.0 / torch.sqrt(S + 1e-5))

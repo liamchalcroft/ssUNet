@@ -23,6 +23,17 @@ from ssunet.training.network_training.gradcache_pretrainer import GradCachePreTr
 from ssunet.utilities.task_name_id_conversion import convert_id_to_task_name
 
 
+class ParseKwargs(argparse.Action):
+    """
+    Credit to https://sumit-ghosh.com/articles/parsing-dictionary-key-value-pairs-kwargs-argparse-python/
+    """
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, dict())
+        for value in values:
+            key, value = value.split('=')
+            getattr(namespace, self.dest)[key] = value
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("network")
@@ -67,6 +78,8 @@ def main():
                         help="Use of Detective Contrastive style learning. Options ['intra', 'inter']\
                             * Intra - Increase local negatives - different classes pulled apart in same image\
                             * Inter - Increase global positives - same classes pushed together together between images")
+    parser.add_argument('-k', '--kwargs', nargs='*', action=ParseKwargs,
+                        help="Any further arguments to pass to Trainer, such as method-specific hyperparams, or metabatch for gradient cache.")
 
     args = parser.parse_args()
 
@@ -76,6 +89,7 @@ def main():
     plans_identifier = args.p
     find_lr = args.find_lr
     detcon = args.detcon
+    kwargs = args.kwargs
 
     use_compressed_data = args.use_compressed_data
     decompress_data = not use_compressed_data
@@ -97,11 +111,16 @@ def main():
 
     assert issubclass(trainer_class, (NetworkPreTrainer, GradCachePreTrainer)), "network_trainer was found but is not derived from NetworkPreTrainer"
 
+    if kwargs:
+        print('Using additional kwargs: ')
+        for key in kwargs.keys():
+            print(key+': ', kwargs[key])
+
     trainer = trainer_class(plans_file, output_folder=output_folder_name, dataset_directory=dataset_directory,
                             unpack_data=decompress_data,
                             deterministic=deterministic,
                             fp16=run_mixed_precision,
-                            detcon=detcon)
+                            detcon=detcon, **kwargs)
     if args.disable_saving:
         trainer.save_final_checkpoint = False # whether or not to save the final checkpoint
         trainer.save_best_checkpoint = False  # whether or not to save the best checkpoint according to

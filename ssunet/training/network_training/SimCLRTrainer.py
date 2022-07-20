@@ -94,7 +94,8 @@ class GC_SimCLRTrainer(GC_ContrastivePreTrainer):
 
         self.load_plans_file()
         self.process_plans(self.plans)
-        self.metabatch = metabatch
+        self.metabatch = int(metabatch)
+        self.num_batches_per_epoch *= self.metabatch
         self.detcon = detcon
 
         self.projector = torch.nn.Sequential(

@@ -380,18 +380,16 @@ class NetworkPreTrainer(object):
             # train one epoch
             self.network.train()
 
-            if self.use_progress_bar:
-                with trange(self.num_batches_per_epoch) as tbar:
-                    for b in tbar:
+            trg = trange(self.num_batches_per_epoch) if self.use_progress_bar else range(self.num_batches_per_epoch)
+            with trg as tbar:
+                for b in tbar:
+                    if self.use_progress_bar:
                         tbar.set_description("Epoch {}/{}".format(self.epoch+1, self.max_num_epochs))
 
-                        l = self.run_iteration(self.tr_gen, True)
-
-                        tbar.set_postfix(loss=l)
-                        train_losses_epoch.append(l)
-            else:
-                for _ in range(self.num_batches_per_epoch):
                     l = self.run_iteration(self.tr_gen, True)
+
+                    if self.use_progress_bar:
+                        tbar.set_postfix(loss=l)
                     train_losses_epoch.append(l)
 
             self.all_tr_losses.append(np.mean(train_losses_epoch))

@@ -37,6 +37,7 @@ from batchgenerators.utilities.file_and_folder_operations import *
 import matplotlib
 matplotlib.use("agg")
 
+from grad_cache.functional import cached, cat_input_tensor
 from solo.utils.momentum import initialize_momentum_params, MomentumUpdater
 
 
@@ -339,7 +340,8 @@ class MomentumPreTrainer(NetworkPreTrainer):
                 output1 = self.network(data1)
                 output2 = self.momentum_network(data2)
                 del data1, data2
-                l = self.loss(output1, output2, mask1, mask2) if self.detcon else self.loss(output1, output2)
+                l = cat_input_tensor(self.loss)(output1, output2, mask1, mask2) \
+                    if self.detcon else cat_input_tensor(self.loss)(output1, output2)
 
             if do_backprop:
                 self.amp_grad_scaler.scale(l).backward()
@@ -351,7 +353,8 @@ class MomentumPreTrainer(NetworkPreTrainer):
             output1 = self.network(data1)
             output2 = self.momentum_network(data2)
             del data1, data2
-            l = self.loss(output1, output2, mask1, mask2) if self.detcon else self.loss(output1, output2)
+            l = cat_input_tensor(self.loss)(output1, output2, mask1, mask2) \
+                if self.detcon else cat_input_tensor(self.loss)(output1, output2)
 
             if do_backprop:
                 l.backward()
@@ -833,59 +836,26 @@ class GC_MomentumPreTrainer(GradCachePreTrainer):
             # train one epoch
             self.network.train()
 
-            if self.use_progress_bar:
-                with trange(self.num_batches_per_epoch) as tbar:
-                    for step, b in enumerate(tbar):
+            outcache1 = []
+            outcache2 = []
+            if self.detcon:
+                maskcache1 = []
+                maskcache2 = []
+
+            outcache1 = []
+            outcache2 = []
+            outfunc1 = []
+            outfunc2 = []
+            if self.detcon:
+                maskcache1 = []
+                maskcache2 = []
+
+            trg = trange(self.num_batches_per_epoch) if self.use_progress_bar else range(self.num_batches_per_epoch)
+            with trg as tbar:
+                for step, b in enumerate(tbar):
+                    if self.use_progress_bar:
                         tbar.set_description("Epoch {}/{}".format(self.epoch+1, self.max_num_epochs))
 
-                        data_dict = next(self.tr_gen)
-
-                        data1 = data_dict['data1']
-                        data2 = data_dict['data2']
-                        data1 = maybe_to_torch(data1)
-                        data2 = maybe_to_torch(data2)
-                        if torch.cuda.is_available():
-                            data1 = to_cuda(data1)
-                            data2 = to_cuda(data2)
-
-                        self.optimizer.zero_grad()
-
-                        outcache1 = []
-                        outcache2 = []
-
-                        if self.fp16:
-                            with autocast():
-                                outcache1.append(self.call_model(self.network,data1))
-                                outcache2.append(self.call_model(self.momentum_network,data2))
-                                del data1, data2
-                                if step % self.metabatch == 0:
-                                    l = self.loss(outcache1, outcache2)
-                                    self.amp_grad_scaler.scale(l).backward()
-                                    if self.clip_grad is not None:
-                                        torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.clip_grad)
-                                    self.amp_grad_scaler.step(self.optimizer)
-                                    self.amp_grad_scaler.update()
-                        else:
-                            outcache1.append(self.call_model(self.network,data1))
-                            outcache2.append(self.call_model(self.momentum_network,data2))
-                            del data1, data2
-                            if step % self.metabatch == 0:
-                                l = self.loss(outcache1, outcache2)
-                                l.backward()
-                                if self.clip_grad is not None:
-                                    torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.clip_grad)
-                                self.optimizer.step()
-
-                        if step % self.metabatch == 0:
-                            self.run_online_knn(torch.cat(outcache1, dim=0), torch.cat(outcache2, dim=0))
-                        
-                        del outcache1, outcache2
-
-                        if step % self.metabatch == 0:
-                            tbar.set_postfix(loss=l.detach().cpu().numpy())
-                            train_losses_epoch.append(l)
-            else:
-                for step, _ in enumerate(range(self.num_batches_per_epoch)):
                     data_dict = next(self.tr_gen)
 
                     data1 = data_dict['data1']
@@ -895,41 +865,74 @@ class GC_MomentumPreTrainer(GradCachePreTrainer):
                     if torch.cuda.is_available():
                         data1 = to_cuda(data1)
                         data2 = to_cuda(data2)
+                    if self.detcon:
+                        mask1 = data_dict['mask1']
+                        mask2 = data_dict['mask2']
+                        mask1 = maybe_to_torch(mask1)
+                        mask2 = maybe_to_torch(mask2)
+                        if torch.cuda.is_available():
+                            mask1 = to_cuda(mask1)
+                            mask2 = to_cuda(mask2)
 
                     self.optimizer.zero_grad()
 
-                    outcache1 = []
-                    outcache2 = []
+                    if self.detcon:
+                        maskcache1.append(mask1)
+                        maskcache2.append(mask2)
 
                     if self.fp16:
                         with autocast():
-                            outcache1.append(self.call_model(self.network,data1))
-                            outcache2.append(self.call_model(self.momentum_network,data2))
-                            del data1, data2
-                            if step % self.metabatch == 0:
-                                l = self.loss(outcache1, outcache2)
+                            outc1, outf1 = self.call_model(self.network,data1)
+                            outc2, outf2 = self.call_model(self.momentum_network,data2)
+                            outcache1.append(outc1)
+                            outcache2.append(outc2)
+                            outfunc1.append(outf1)
+                            outfunc2.append(outf2)
+
+                            if (step+1) % self.metabatch == 0:
+                                l = self.loss(outcache1, outcache2, maskcache1, maskcache2) \
+                                    if self.detcon else self.loss(outcache1, outcache2)
                                 self.amp_grad_scaler.scale(l).backward()
+                                for f, c in zip(outfunc1, outcache1):
+                                    f(c)
+                                for f, c in zip(outfunc2, outcache2):
+                                    f(c)
                                 if self.clip_grad is not None:
                                     torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.clip_grad)
                                 self.amp_grad_scaler.step(self.optimizer)
                                 self.amp_grad_scaler.update()
                     else:
-                        outcache1.append(self.call_model(self.network,data1))
-                        outcache2.append(self.call_model(self.momentum_network,data2))
-                        del data1, data2
-                        if step % self.metabatch == 0:
-                            l = self.loss(outcache1, outcache2)
+                        outc1, outf1 = self.call_model(self.network,data1)
+                        outc2, outf2 = self.call_model(self.momentum_network,data2)
+                        outcache1.append(outc1)
+                        outcache2.append(outc2)
+                        outfunc1.append(outf1)
+                        outfunc2.append(outf2)
+                        if (step+1) % self.metabatch == 0:
+                            l = self.loss(outcache1, outcache2, maskcache1, maskcache2) \
+                                    if self.detcon else self.loss(outcache1, outcache2)
                             l.backward()
                             if self.clip_grad is not None:
                                 torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.clip_grad)
+                            for f, c in zip(outfunc1, outcache1):
+                                f(c)
+                            for f, c in zip(outfunc2, outcache2):
+                                f(c)
                             self.optimizer.step()
 
-                    if step % self.metabatch == 0:
+                    if (step+1) % self.metabatch == 0:
                         self.run_online_knn(torch.cat(outcache1, dim=0), torch.cat(outcache2, dim=0))
-                    
-                    del outcache1, outcache2
-
-                    if step % self.metabatch == 0:
+                        del outcache1, outcache2, outfunc1, outfunc2, data1, data2
+                        outcache1 = []
+                        outcache2 = []
+                        outfunc1 = []
+                        outfunc2 = []
+                        if self.detcon:
+                            del maskcache1, maskcache2
+                            maskcache1 = []
+                            maskcache2 = []
+                        if self.use_progress_bar:
+                            tbar.set_postfix(loss=l.detach().cpu().numpy())
                         train_losses_epoch.append(l)
 
             self.all_tr_losses.append(np.mean(train_losses_epoch))

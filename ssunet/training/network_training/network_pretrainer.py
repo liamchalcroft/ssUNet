@@ -90,8 +90,8 @@ class NetworkPreTrainer(object):
         # too high the training will take forever
         self.train_loss_MA_alpha = 0.93  # alpha * old + (1-alpha) * new
         self.train_loss_MA_eps = 5e-4  # new MA must be at least this much better (smaller)
-        self.max_num_epochs = 1000
-        self.num_batches_per_epoch = 250
+        self.max_num_epochs = 500
+        self.num_batches_per_epoch = 50
         self.lr_threshold = 1e-6  # the network will not terminate training if the lr is still above this threshold
 
         ################# LEAVE THESE ALONE ################################################

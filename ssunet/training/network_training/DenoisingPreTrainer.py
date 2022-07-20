@@ -48,7 +48,7 @@ class DenoisingPreTrainer(NetworkPreTrainer):
 
         super().__init__(deterministic, fp16)
 
-        self.max_num_epochs = 1000
+        self.max_num_epochs = 500
         self.initial_lr = 1e-2
 
         self.pin_memory = True

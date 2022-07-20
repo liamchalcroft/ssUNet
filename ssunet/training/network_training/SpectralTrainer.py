@@ -40,7 +40,7 @@ def spectral_loss_func(z1, z2, mu=1.):
     return (loss_part1 + loss_part2) / mu
 
 
-class ARBTrainer(ContrastivePreTrainer):
+class SpectralTrainer(ContrastivePreTrainer):
     """
     """
 

@@ -111,16 +111,22 @@ def main():
 
     assert issubclass(trainer_class, (NetworkPreTrainer, GradCachePreTrainer)), "network_trainer was found but is not derived from NetworkPreTrainer"
 
-    if kwargs:
+    if kwargs is not None:
         print('Using additional kwargs: ')
         for key in kwargs.keys():
             print(key+': ', kwargs[key])
-
-    trainer = trainer_class(plans_file, output_folder=output_folder_name, dataset_directory=dataset_directory,
+        trainer = trainer_class(plans_file, output_folder=output_folder_name, dataset_directory=dataset_directory,
                             unpack_data=decompress_data,
                             deterministic=deterministic,
                             fp16=run_mixed_precision,
                             detcon=detcon, **kwargs)
+    else:
+        trainer = trainer_class(plans_file, output_folder=output_folder_name, dataset_directory=dataset_directory,
+                            unpack_data=decompress_data,
+                            deterministic=deterministic,
+                            fp16=run_mixed_precision,
+                            detcon=detcon)
+
     if args.disable_saving:
         trainer.save_final_checkpoint = False # whether or not to save the final checkpoint
         trainer.save_best_checkpoint = False  # whether or not to save the best checkpoint according to

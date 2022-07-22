@@ -15,6 +15,8 @@
 
 from collections import OrderedDict
 from typing import Tuple, List
+from time import time, sleep
+from tqdm import trange
 
 import numpy as np
 import torch
@@ -30,6 +32,7 @@ from ssunet.training.network_training.network_pretrainer import NetworkPreTraine
 from ssunet.training.network_training.gradcache_pretrainer import GradCachePreTrainer
 from ssunet.utilities.nd_softmax import softmax_helper
 from torch import nn
+import torch.backends.cudnn as cudnn
 from torch.cuda.amp import GradScaler, autocast
 from ssunet.training.learning_rate.poly_lr import poly_lr
 from batchgenerators.utilities.file_and_folder_operations import *
@@ -340,8 +343,8 @@ class MomentumPreTrainer(NetworkPreTrainer):
                 output1 = self.network(data1)
                 output2 = self.momentum_network(data2)
                 del data1, data2
-                l = cat_input_tensor(self.loss)(output1, output2, mask1, mask2) \
-                    if self.detcon else cat_input_tensor(self.loss)(output1, output2)
+                l = self.loss(output1, output2, mask1, mask2) \
+                    if self.detcon else self.loss(output1, output2)
 
             if do_backprop:
                 self.amp_grad_scaler.scale(l).backward()
@@ -353,8 +356,8 @@ class MomentumPreTrainer(NetworkPreTrainer):
             output1 = self.network(data1)
             output2 = self.momentum_network(data2)
             del data1, data2
-            l = cat_input_tensor(self.loss)(output1, output2, mask1, mask2) \
-                if self.detcon else cat_input_tensor(self.loss)(output1, output2)
+            l = self.loss(output1, output2, mask1, mask2) \
+                if self.detcon else self.loss(output1, output2)
 
             if do_backprop:
                 l.backward()

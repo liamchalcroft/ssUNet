@@ -411,7 +411,7 @@ class Generic_UNet(SegmentationNetwork):
         seg_outputs = []
         for d in range(len(self.conv_blocks_context) - 1):
             x = self.conv_blocks_context[d](x)
-            skips.append(x if self.skip else torch.zeros_like(x))
+            skips.append(x if self.skip else torch.zeros_like(x, requires_grad=True))
             if not self.convolutional_pooling:
                 x = self.td[d](x)
 

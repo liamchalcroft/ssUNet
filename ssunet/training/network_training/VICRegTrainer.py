@@ -42,6 +42,8 @@ class VICRegTrainer(ContrastivePreTrainer):
         self.process_plans(self.plans)
         self.detcon = detcon
 
+        self.initial_lr = 1e-4
+
         self.projector = torch.nn.Sequential(
             torch.nn.Linear(320 if self.threeD else 480, proj_hidden_dim),
             BatchNormDimSwap(),
@@ -55,6 +57,13 @@ class VICRegTrainer(ContrastivePreTrainer):
             torch.nn.ReLU(),
             torch.nn.Linear(proj_hidden_dim, proj_output_dim),
         )
+
+        if type(sim_loss_weight)==str:
+            sim_loss_weight = float(sim_loss_weight)
+        if type(var_loss_weight)==str:
+            var_loss_weight = float(var_loss_weight)
+        if type(cov_loss_weight)==str:
+            cov_loss_weight = float(cov_loss_weight)
 
         self.sim_loss_weight = sim_loss_weight
         self.var_loss_weight = var_loss_weight

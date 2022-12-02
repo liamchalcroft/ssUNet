@@ -118,14 +118,15 @@ def main():
         trainer = trainer_class(plans_file, output_folder=output_folder_name, dataset_directory=dataset_directory,
                             unpack_data=decompress_data,
                             deterministic=deterministic,
-                            fp16=run_mixed_precision,
-                            detcon=detcon, **kwargs)
+                            fp16=run_mixed_precision, **kwargs)
     else:
         trainer = trainer_class(plans_file, output_folder=output_folder_name, dataset_directory=dataset_directory,
                             unpack_data=decompress_data,
                             deterministic=deterministic,
-                            fp16=run_mixed_precision,
-                            detcon=detcon)
+                            fp16=run_mixed_precision)
+
+    if not trainer.was_initialized:
+        trainer.initialize(True)
 
     if args.disable_saving:
         trainer.save_final_checkpoint = False # whether or not to save the final checkpoint

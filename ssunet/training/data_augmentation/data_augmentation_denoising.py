@@ -159,11 +159,11 @@ def get_denoising_augmentation(dataloader_train, patch_size, params=default_3D_a
     if params.get("do_mirror"):
         tr_transforms.append(MirrorTransform(params.get("mirror_axes")))
 
-    tr_transforms.append(RenameTransform('data', 'target', False))
+    # tr_transforms.append(RenameTransform('data', 'target', False))
 
     tr_transforms.append(ScaledNoiseTransform(return_noise_vec=noisevec))
 
-    tr_transforms.append(NumpyToTensor(['data', 'target', 'data_noisevec'] if noisevec else ['data', 'target'], 'float'))
+    tr_transforms.append(NumpyToTensor(['data', 'data_target', 'data_noisevec'] if noisevec else ['data', 'data_target'], 'float'))
 
     tr_transforms = Compose(tr_transforms)
 

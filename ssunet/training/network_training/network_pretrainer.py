@@ -148,7 +148,7 @@ class NetworkPreTrainer(object):
             matplotlib.rc('font', **font)
 
             fig = plt.figure(figsize=(30, 24))
-            ax = fig.add_subplot(1,2,(2 if self.extractor else 1))
+            ax = fig.add_subplot(1,(2 if self.extractor else 1),1)
 
             x_values = list(range(self.epoch + 1))
 
@@ -497,6 +497,18 @@ class NetworkPreTrainer(object):
         if self.extractor:
             data1 = data_dict['data1']
             data2 = data_dict['data2']
+        
+            import matplotlib.pyplot as plt
+            plt.figure(figsize=(16,8))
+            plt.subplot(121)
+            plt.imshow(data1[0,0,...,20] if self.threeD else data1[0,0,...])
+            plt.axis('off')
+            plt.subplot(122)
+            plt.imshow(data2[0,0,...,20] if self.threeD else data2[0,0,...])
+            plt.axis('off')
+            plt.savefig('/Users/liamchalcroft/Desktop/MRES/ssunet-test/test.png')
+            plt.close()
+    
             data1 = maybe_to_torch(data1)
             data2 = maybe_to_torch(data2)
             if torch.cuda.is_available():
@@ -512,7 +524,8 @@ class NetworkPreTrainer(object):
                     mask2 = to_cuda(mask2)
         else:
             data = data_dict['data']
-            target = data_dict['data_noisevec'] if self.noisevec else data_dict['target']
+            target = data_dict['data_noisevec'] if self.noisevec else data_dict['data_target']
+
             data = maybe_to_torch(data)
             target = maybe_to_torch(target)
             if torch.cuda.is_available():
@@ -530,6 +543,22 @@ class NetworkPreTrainer(object):
                     l = self.loss(output1, output2, mask1, mask2) if self.detcon else self.loss(output1, output2)
                 else:
                     output = self.network(data)
+                    import matplotlib.pyplot as plt
+                    plt.figure(figsize=(20,20))
+                    plt.subplot(221)
+                    plt.imshow(data[0,0,...,20] if self.threeD else data[0,0,...], cmap='gray')
+                    plt.axis('off')
+                    plt.subplot(222)
+                    plt.imshow(target[0,0,...,20] if self.threeD else target[0,0,...], cmap='gray')
+                    plt.axis('off')
+                    plt.subplot(223)
+                    plt.imshow(output.detach()[0,0,...,20] if self.threeD else output.detach()[0,0,...], cmap='gray')
+                    plt.axis('off')
+                    plt.subplot(224)
+                    plt.imshow((data-output).detach()[0,0,...,20] if self.threeD else (data-output).detach()[0,0,...], cmap='gray')
+                    plt.axis('off')
+                    plt.savefig('/Users/liamchalcroft/Desktop/MRES/ssunet-test/test.png')
+                    plt.close()
                     del data
                     l = self.loss(output, target)
                     del target

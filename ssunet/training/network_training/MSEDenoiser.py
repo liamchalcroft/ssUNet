@@ -31,10 +31,16 @@ class MSEDenoiser(DenoisingPreTrainer):
 
     def __init__(self, plans_file, output_folder=None, dataset_directory=None,
                  unpack_data=True, deterministic=True, fp16=False,
-                 freeze_encoder=False, freeze_decoder=True, extractor=True, 
+                 freeze_encoder=False, freeze_decoder=True, extractor=False, 
                  noisevec=False, skip=True, deep_sup=False):
+        if type(noisevec)==str:
+            noisevec = (noisevec=='True')
+        if type(skip)==str:
+            skip = (skip=='True')
+        if type(deep_sup)==str:
+            deep_sup = (deep_sup=='True')
         super().__init__(plans_file, output_folder, dataset_directory, unpack_data,
-                         deterministic, fp16, freeze_encoder, freeze_decoder, 
+                         deterministic, fp16, 12, freeze_encoder, freeze_decoder, 
                          extractor, noisevec, skip, deep_sup)
 
         self.load_plans_file()

@@ -160,7 +160,7 @@ class GradCachePreTrainer(object):
             matplotlib.rc('font', **font)
 
             fig = plt.figure(figsize=(30, 24))
-            ax = fig.add_subplot(1,2,(2 if self.extractor else 1))
+            ax = fig.add_subplot(1,(2 if self.extractor else 1),1)
 
             x_values = list(range(self.epoch + 1))
 
@@ -483,7 +483,7 @@ class GradCachePreTrainer(object):
                             maskcache2 = []
                         if self.use_progress_bar:
                             tbar.set_postfix(loss=l.detach().cpu().numpy())
-                        train_losses_epoch.append(l)
+                        train_losses_epoch.append(l.detach().cpu().numpy())
 
             self.all_tr_losses.append(np.mean(train_losses_epoch))
             self.print_to_log_file("train loss : %.4f" % self.all_tr_losses[-1])

@@ -335,6 +335,7 @@ class MomentumPreTrainer(NetworkPreTrainer):
         #     plt.imshow(mask2[0,0,50], cmap='jet', vmax=5)
         #     plt.axis('off')
         # plt.savefig('/Users/liamchalcroft/Desktop/MRES/ssunet-test/test.png')
+        # plt.close()
 
         self.optimizer.zero_grad()
 
@@ -936,7 +937,7 @@ class GC_MomentumPreTrainer(GradCachePreTrainer):
                             maskcache2 = []
                         if self.use_progress_bar:
                             tbar.set_postfix(loss=l.detach().cpu().numpy())
-                        train_losses_epoch.append(l)
+                        train_losses_epoch.append(l.detach().cpu().numpy())
 
             self.all_tr_losses.append(np.mean(train_losses_epoch))
             self.print_to_log_file("train loss : %.4f" % self.all_tr_losses[-1])

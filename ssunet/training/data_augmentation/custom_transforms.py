@@ -162,7 +162,6 @@ class ScaledNoiseTransform(AbstractTransform):
         Adds additive Gaussian Noise
         :param noise_variance: variance is uniformly sampled from that range
         :param p_per_sample:
-        :param p_per_channel:
         :param per_channel: if True, each channel will get its own variance sampled from noise_variance
         :param data_key:
         CAREFUL: This transform will modify the value range of your data!
@@ -176,17 +175,18 @@ class ScaledNoiseTransform(AbstractTransform):
     def __call__(self, **data_dict):
         noise_variance = self.ensure_tuple(self.noise_variance)
         gamma = self.ensure_tuple(self.gamma)
+        data_dict[self.data_key+'_target'] = np.copy(data_dict[self.data_key])
+        if self.return_noise_vec:
+            data_dict[self.data_key+'_noisevec'] = np.zeros_like(data_dict[self.data_key][:,0][:,None])
         for b in range(len(data_dict[self.data_key])):
             if np.random.uniform() < self.p_per_sample:
-                if self.return_noise_vec==True:
+                if self.return_noise_vec:
                     data_dict[self.data_key][b], data_dict[self.data_key+'_noisevec'][b] =\
                         self.augment_scaled_gaussian_noise(data_dict[self.data_key][b], 
-                                                noise_variance, gamma,
-                                                self.p_per_channel, self.per_channel, True)
+                                                noise_variance, gamma, True)
                 else:
                     data_dict[self.data_key][b] = self.augment_scaled_gaussian_noise(data_dict[self.data_key][b], 
-                                                                        noise_variance, gamma,
-                                                                        self.p_per_channel, self.per_channel)
+                                                                        noise_variance, gamma, False)
         return data_dict
 
     def ensure_tuple(self, arg):
@@ -200,7 +200,7 @@ class ScaledNoiseTransform(AbstractTransform):
         variance = self.sample_dist(noise_variance)
         gamma = self.sample_dist(gamma)
         
-        noise_vec = np.random.normal(0.0, variance, size=data_sample[c].shape)
+        noise_vec = np.random.normal(0.0, variance, size=data_sample[0].shape)
         for c in range(data_sample.shape[0]):
             data_sample[c] = np.sqrt(gamma) * data_sample[c] +\
                 np.sqrt(1-gamma) * noise_vec

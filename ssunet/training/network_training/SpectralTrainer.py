@@ -16,7 +16,10 @@
 from itertools import chain
 
 import torch
-from ssunet.training.network_training.ContrastivePreTrainer import ContrastivePreTrainer, GC_ContrastivePreTrainer
+from ssunet.training.network_training.ContrastivePreTrainer import (
+    ContrastivePreTrainer,
+    GC_ContrastivePreTrainer,
+)
 from ssunet.training.network_training.custom_layer import BatchNormDimSwap, NOBS
 from batchgenerators.utilities.file_and_folder_operations import *
 
@@ -24,34 +27,61 @@ import numpy as np
 from grad_cache.functional import cat_input_tensor
 
 
-def spectral_loss_func(z1, z2, mu=1.):
+def spectral_loss_func(z1, z2, mu=1.0):
     """
-    Loss function for 'Provable Guarantees for Self-Supervised Deep Learning with Spectral Contrastive Loss'. 
+    Loss function for 'Provable Guarantees for Self-Supervised Deep Learning with Spectral Contrastive Loss'.
     Adapted from https://github.com/jhaochenz/spectral_contrastive_learning/
     """
     mask1 = (torch.norm(z1, p=2, dim=1) < np.sqrt(mu)).float().unsqueeze(1)
     mask2 = (torch.norm(z2, p=2, dim=1) < np.sqrt(mu)).float().unsqueeze(1)
-    z1 = mask1 * z1 + (1-mask1) * torch.nn.functional.normalize(z1, dim=1) * np.sqrt(mu)
-    z2 = mask2 * z2 + (1-mask2) * torch.nn.functional.normalize(z2, dim=1) * np.sqrt(mu)
+    z1 = mask1 * z1 + (1 - mask1) * torch.nn.functional.normalize(z1, dim=1) * np.sqrt(
+        mu
+    )
+    z2 = mask2 * z2 + (1 - mask2) * torch.nn.functional.normalize(z2, dim=1) * np.sqrt(
+        mu
+    )
     loss_part1 = -2 * torch.mean(z1 * z2) * z1.shape[1]
     square_term = torch.matmul(z1, z2.T) ** 2
-    loss_part2 = torch.mean(torch.triu(square_term, diagonal=1) + torch.tril(square_term, diagonal=-1)) * \
-                 z1.shape[0] / (z1.shape[0] - 1)
+    loss_part2 = (
+        torch.mean(
+            torch.triu(square_term, diagonal=1) + torch.tril(square_term, diagonal=-1)
+        )
+        * z1.shape[0]
+        / (z1.shape[0] - 1)
+    )
     return (loss_part1 + loss_part2) / mu
 
 
 class SpectralTrainer(ContrastivePreTrainer):
-    """
-    """
+    """ """
 
-    def __init__(self, plans_file, output_folder=None, dataset_directory=None,
-                 unpack_data=True, deterministic=True, fp16=False,
-                 freeze_encoder=False, freeze_decoder=True, extractor=True,
-                 proj_output_dim=2048, proj_hidden_dim=2048,
-                 mu=1.,
-                 detcon=False):
-        super().__init__(plans_file, output_folder, dataset_directory, unpack_data,
-                         deterministic, fp16, freeze_encoder, freeze_decoder, extractor)
+    def __init__(
+        self,
+        plans_file,
+        output_folder=None,
+        dataset_directory=None,
+        unpack_data=True,
+        deterministic=True,
+        fp16=False,
+        freeze_encoder=False,
+        freeze_decoder=True,
+        extractor=True,
+        proj_output_dim=2048,
+        proj_hidden_dim=2048,
+        mu=1.0,
+        detcon=False,
+    ):
+        super().__init__(
+            plans_file,
+            output_folder,
+            dataset_directory,
+            unpack_data,
+            deterministic,
+            fp16,
+            freeze_encoder,
+            freeze_decoder,
+            extractor,
+        )
 
         self.load_plans_file()
         self.process_plans(self.plans)
@@ -75,12 +105,15 @@ class SpectralTrainer(ContrastivePreTrainer):
 
     def initialize_optimizer_and_scheduler(self):
         assert self.network is not None, "self.initialize_network must be called first"
-        self.optimizer = torch.optim.AdamW(chain(self.network.parameters(), self.projector.parameters()),
-                                            self.initial_lr, weight_decay=self.weight_decay)
+        self.optimizer = torch.optim.AdamW(
+            chain(self.network.parameters(), self.projector.parameters()),
+            self.initial_lr,
+            weight_decay=self.weight_decay,
+        )
         self.lr_scheduler = None
 
     def loss(self, view1, view2, mask1=None, mask2=None):
-        if self.detcon: # pool by multiplying images with masks
+        if self.detcon:  # pool by multiplying images with masks
             view1, view2 = self.detcon_views(view1, view2, mask1, mask2)
         else:
             view1 = view1.view(view1.size(0), view1.size(1), -1).mean(dim=2)
@@ -89,14 +122,18 @@ class SpectralTrainer(ContrastivePreTrainer):
         z1 = self.projector(view1)
         z2 = self.projector(view2)
 
-        if self.detcon=='intra': # treat each class as batch item - separate classes in same image will be treated as separate images
-            z1 = z1.view(z1.size(0)*z1.size(1), -1)
-            z2 = z2.view(z2.size(0)*z2.size(1), -1)
-        elif self.detcon=='inter': # treat each class as batch and original batch as features - same class if diff images treated as same image
-            z1 = z1.permute(1,0,2).reshape(z1.size(1), -1)
-            z2 = z2.permute(1,0,2).reshape(z2.size(1), -1)
+        if (
+            self.detcon == "intra"
+        ):  # treat each class as batch item - separate classes in same image will be treated as separate images
+            z1 = z1.view(z1.size(0) * z1.size(1), -1)
+            z2 = z2.view(z2.size(0) * z2.size(1), -1)
+        elif (
+            self.detcon == "inter"
+        ):  # treat each class as batch and original batch as features - same class if diff images treated as same image
+            z1 = z1.permute(1, 0, 2).reshape(z1.size(1), -1)
+            z2 = z2.permute(1, 0, 2).reshape(z2.size(1), -1)
 
-        spectral_loss = spectral_loss_func(z1,z2,self.mu)
+        spectral_loss = spectral_loss_func(z1, z2, self.mu)
 
         del z1, z2, view1, view2
 
@@ -104,17 +141,36 @@ class SpectralTrainer(ContrastivePreTrainer):
 
 
 class GC_SpectralTrainer(GC_ContrastivePreTrainer):
-    """
-    """
+    """ """
 
-    def __init__(self, plans_file, output_folder=None, dataset_directory=None,
-                 unpack_data=True, deterministic=True, fp16=False,
-                 freeze_encoder=False, freeze_decoder=True, extractor=True,
-                 proj_output_dim=2048, proj_hidden_dim=2048,
-                 mu=1., metabatch=8,
-                 detcon=False):
-        super().__init__(plans_file, output_folder, dataset_directory, unpack_data,
-                         deterministic, fp16, freeze_encoder, freeze_decoder, extractor)
+    def __init__(
+        self,
+        plans_file,
+        output_folder=None,
+        dataset_directory=None,
+        unpack_data=True,
+        deterministic=True,
+        fp16=False,
+        freeze_encoder=False,
+        freeze_decoder=True,
+        extractor=True,
+        proj_output_dim=2048,
+        proj_hidden_dim=2048,
+        mu=1.0,
+        metabatch=8,
+        detcon=False,
+    ):
+        super().__init__(
+            plans_file,
+            output_folder,
+            dataset_directory,
+            unpack_data,
+            deterministic,
+            fp16,
+            freeze_encoder,
+            freeze_decoder,
+            extractor,
+        )
 
         self.load_plans_file()
         self.process_plans(self.plans)
@@ -140,13 +196,16 @@ class GC_SpectralTrainer(GC_ContrastivePreTrainer):
 
     def initialize_optimizer_and_scheduler(self):
         assert self.network is not None, "self.initialize_network must be called first"
-        self.optimizer = torch.optim.AdamW(chain(self.network.parameters(), self.projector.parameters()),
-                                            self.initial_lr, weight_decay=self.weight_decay)
+        self.optimizer = torch.optim.AdamW(
+            chain(self.network.parameters(), self.projector.parameters()),
+            self.initial_lr,
+            weight_decay=self.weight_decay,
+        )
         self.lr_scheduler = None
 
     @cat_input_tensor
     def loss(self, view1, view2, mask1=None, mask2=None):
-        if self.detcon: # pool by multiplying images with masks
+        if self.detcon:  # pool by multiplying images with masks
             view1, view2 = self.detcon_views(view1, view2, mask1, mask2)
         else:
             view1 = view1.view(view1.size(0), view1.size(1), -1).mean(dim=2)
@@ -155,14 +214,18 @@ class GC_SpectralTrainer(GC_ContrastivePreTrainer):
         z1 = self.projector(view1)
         z2 = self.projector(view2)
 
-        if self.detcon=='intra': # treat each class as batch item - separate classes in same image will be treated as separate images
-            z1 = z1.view(z1.size(0)*z1.size(1), -1)
-            z2 = z2.view(z2.size(0)*z2.size(1), -1)
-        elif self.detcon=='inter': # treat each class as batch and original batch as features - same class if diff images treated as same image
-            z1 = z1.permute(1,0,2).reshape(z1.size(1), -1)
-            z2 = z2.permute(1,0,2).reshape(z2.size(1), -1)
+        if (
+            self.detcon == "intra"
+        ):  # treat each class as batch item - separate classes in same image will be treated as separate images
+            z1 = z1.view(z1.size(0) * z1.size(1), -1)
+            z2 = z2.view(z2.size(0) * z2.size(1), -1)
+        elif (
+            self.detcon == "inter"
+        ):  # treat each class as batch and original batch as features - same class if diff images treated as same image
+            z1 = z1.permute(1, 0, 2).reshape(z1.size(1), -1)
+            z2 = z2.permute(1, 0, 2).reshape(z2.size(1), -1)
 
-        spectral_loss = spectral_loss_func(z1,z2,self.mu)
+        spectral_loss = spectral_loss_func(z1, z2, self.mu)
 
         del z1, z2, view1, view2
 

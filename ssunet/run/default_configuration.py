@@ -14,7 +14,11 @@
 
 
 import ssunet
-from ssunet.paths import network_training_output_dir, preprocessing_output_dir, default_plans_identifier
+from ssunet.paths import (
+    network_training_output_dir,
+    preprocessing_output_dir,
+    default_plans_identifier,
+)
 from batchgenerators.utilities.file_and_folder_operations import *
 from ssunet.experiment_planning.summarize_plans import summarize_plans
 from ssunet.training.model_restore import recursive_find_python_class
@@ -22,7 +26,7 @@ from ssunet.training.model_restore import recursive_find_python_class
 
 def get_configuration_from_output_folder(folder):
     # split off network_training_output_dir
-    folder = folder[len(network_training_output_dir):]
+    folder = folder[len(network_training_output_dir) :]
     if folder.startswith("/"):
         folder = folder[1:]
 
@@ -31,25 +35,42 @@ def get_configuration_from_output_folder(folder):
     return configuration, task, trainer, plans_identifier
 
 
-def get_default_configuration(network, task, network_trainer, plans_identifier=default_plans_identifier,
-                              search_in=(ssunet.__path__[0], "training", "network_training"),
-                              base_module='ssunet.training.network_training'):
-    assert network in ['2d', '3d_fullres',], \
-        "network can only be one of the following: \'2d\', \'3d_fullres\'"
+def get_default_configuration(
+    network,
+    task,
+    network_trainer,
+    plans_identifier=default_plans_identifier,
+    search_in=(ssunet.__path__[0], "training", "network_training"),
+    base_module="ssunet.training.network_training",
+):
+    assert network in [
+        "2d",
+        "3d_fullres",
+    ], "network can only be one of the following: '2d', '3d_fullres'"
 
     dataset_directory = join(preprocessing_output_dir, task)
 
-    if network == '2d':
-        plans_file = join(preprocessing_output_dir, task, plans_identifier + "_plans_2D.pkl")
+    if network == "2d":
+        plans_file = join(
+            preprocessing_output_dir, task, plans_identifier + "_plans_2D.pkl"
+        )
     else:
-        plans_file = join(preprocessing_output_dir, task, plans_identifier + "_plans_3D.pkl")
+        plans_file = join(
+            preprocessing_output_dir, task, plans_identifier + "_plans_3D.pkl"
+        )
 
     plans = load_pickle(plans_file)
 
-    trainer_class = recursive_find_python_class([join(*search_in)], network_trainer,
-                                                current_module=base_module)
+    trainer_class = recursive_find_python_class(
+        [join(*search_in)], network_trainer, current_module=base_module
+    )
 
-    output_folder_name = join(network_training_output_dir, network, task, network_trainer + "__" + plans_identifier)
+    output_folder_name = join(
+        network_training_output_dir,
+        network,
+        task,
+        network_trainer + "__" + plans_identifier,
+    )
 
     print("###############################################")
     print("I am running the following nnUNet: %s" % network)
@@ -57,6 +78,9 @@ def get_default_configuration(network, task, network_trainer, plans_identifier=d
     print("For that I will be using the following configuration:")
     summarize_plans(plans_file)
 
-    print("\nI am using data from this folder: ", join(dataset_directory, plans['data_identifier']))
+    print(
+        "\nI am using data from this folder: ",
+        join(dataset_directory, plans["data_identifier"]),
+    )
     print("###############################################")
     return plans_file, output_folder_name, dataset_directory, trainer_class

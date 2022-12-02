@@ -26,7 +26,14 @@ class RemoveKeyTransform(AbstractTransform):
 
 
 class MaskTransform(AbstractTransform):
-    def __init__(self, dct_for_where_it_was_used, mask_idx_in_seg=1, set_outside_to=0, data_key="data", seg_key="seg"):
+    def __init__(
+        self,
+        dct_for_where_it_was_used,
+        mask_idx_in_seg=1,
+        set_outside_to=0,
+        data_key="data",
+        seg_key="seg",
+    ):
         """
         data[mask < 0] = 0
         Sets everything outside the mask to 0. CAREFUL! outside is defined as < 0, not =0 (in the Mask)!!!
@@ -48,7 +55,9 @@ class MaskTransform(AbstractTransform):
         seg = data_dict.get(self.seg_key)
         print(self.seg_key, seg.shape)
         if seg is None or seg.shape[1] < self.mask_idx_in_seg:
-            raise Warning("mask not found, seg may be missing or seg[:, mask_idx_in_seg] may not exist")
+            raise Warning(
+                "mask not found, seg may be missing or seg[:, mask_idx_in_seg] may not exist"
+            )
         data = data_dict.get(self.data_key)
         print(self.data_key, data.shape)
         print(self.dct_for_where_it_was_used)
@@ -61,30 +70,38 @@ class MaskTransform(AbstractTransform):
         return data_dict
 
 
-def convert_3d_to_2d_generator(data_dict, data_key='data', label_key=None):
+def convert_3d_to_2d_generator(data_dict, data_key="data", label_key=None):
     shp = data_dict[data_key].shape
-    data_dict[data_key] = data_dict[data_key].reshape((shp[0], shp[1] * shp[2], shp[3], shp[4]))
-    data_dict['orig_shape_data'] = shp
+    data_dict[data_key] = data_dict[data_key].reshape(
+        (shp[0], shp[1] * shp[2], shp[3], shp[4])
+    )
+    data_dict["orig_shape_data"] = shp
     if label_key is not None:
         shp = data_dict[label_key].shape
-        data_dict[label_key] = data_dict[label_key].reshape((shp[0], shp[1] * shp[2], shp[3], shp[4]))
-        data_dict['orig_shape_seg'] = shp
+        data_dict[label_key] = data_dict[label_key].reshape(
+            (shp[0], shp[1] * shp[2], shp[3], shp[4])
+        )
+        data_dict["orig_shape_seg"] = shp
     return data_dict
 
 
-def convert_2d_to_3d_generator(data_dict, data_key='data', label_key=None):
-    shp = data_dict['orig_shape_data']
+def convert_2d_to_3d_generator(data_dict, data_key="data", label_key=None):
+    shp = data_dict["orig_shape_data"]
     current_shape = data_dict[data_key].shape
-    data_dict[data_key] = data_dict[data_key].reshape((shp[0], shp[1], shp[2], current_shape[-2], current_shape[-1]))
+    data_dict[data_key] = data_dict[data_key].reshape(
+        (shp[0], shp[1], shp[2], current_shape[-2], current_shape[-1])
+    )
     if label_key is not None:
-        shp = data_dict['orig_shape_seg']
+        shp = data_dict["orig_shape_seg"]
         current_shape_seg = data_dict[label_key].shape
-        data_dict[label_key] = data_dict[label_key].reshape((shp[0], shp[1], shp[2], current_shape_seg[-2], current_shape_seg[-1]))
+        data_dict[label_key] = data_dict[label_key].reshape(
+            (shp[0], shp[1], shp[2], current_shape_seg[-2], current_shape_seg[-1])
+        )
     return data_dict
 
 
 class Convert3DTo2DTransform(AbstractTransform):
-    def __init__(self, data_key='data', label_key=None):
+    def __init__(self, data_key="data", label_key=None):
         self.data_key = data_key
         self.label_key = label_key
 
@@ -93,7 +110,7 @@ class Convert3DTo2DTransform(AbstractTransform):
 
 
 class Convert2DTo3DTransform(AbstractTransform):
-    def __init__(self, data_key='data', label_key=None):
+    def __init__(self, data_key="data", label_key=None):
         self.data_key = data_key
         self.label_key = label_key
 
@@ -102,7 +119,13 @@ class Convert2DTo3DTransform(AbstractTransform):
 
 
 class ConvertSegmentationToRegionsTransform(AbstractTransform):
-    def __init__(self, regions: dict, seg_key: str = "seg", output_key: str = "seg", seg_channel: int = 0):
+    def __init__(
+        self,
+        regions: dict,
+        seg_key: str = "seg",
+        output_key: str = "seg",
+        seg_channel: int = 0,
+    ):
         """
         regions are tuple of tuples where each inner tuple holds the class indices that are merged into one region, example:
         regions= ((1, 2), (2, )) will result in 2 regions: one covering the region of labels 1&2 and the other just 2
@@ -132,7 +155,14 @@ class ConvertSegmentationToRegionsTransform(AbstractTransform):
 
 
 class MoveSegAsOneHotToData(AbstractTransform):
-    def __init__(self, channel_id, all_seg_labels, key_origin="seg", key_target="data", remove_from_origin=True):
+    def __init__(
+        self,
+        channel_id,
+        all_seg_labels,
+        key_origin="seg",
+        key_target="data",
+        remove_from_origin=True,
+    ):
         self.remove_from_origin = remove_from_origin
         self.all_seg_labels = all_seg_labels
         self.key_target = key_target
@@ -142,22 +172,33 @@ class MoveSegAsOneHotToData(AbstractTransform):
     def __call__(self, **data_dict):
         origin = data_dict.get(self.key_origin)
         target = data_dict.get(self.key_target)
-        seg = origin[:, self.channel_id:self.channel_id+1]
-        seg_onehot = np.zeros((seg.shape[0], len(self.all_seg_labels), *seg.shape[2:]), dtype=seg.dtype)
+        seg = origin[:, self.channel_id : self.channel_id + 1]
+        seg_onehot = np.zeros(
+            (seg.shape[0], len(self.all_seg_labels), *seg.shape[2:]), dtype=seg.dtype
+        )
         for i, l in enumerate(self.all_seg_labels):
             seg_onehot[:, i][seg[:, 0] == l] = 1
         target = np.concatenate((target, seg_onehot), 1)
         data_dict[self.key_target] = target
 
         if self.remove_from_origin:
-            remaining_channels = [i for i in range(origin.shape[1]) if i != self.channel_id]
+            remaining_channels = [
+                i for i in range(origin.shape[1]) if i != self.channel_id
+            ]
             origin = origin[:, remaining_channels]
             data_dict[self.key_origin] = origin
         return data_dict
 
 
 class ScaledNoiseTransform(AbstractTransform):
-    def __init__(self, noise_variance=0.8, gamma=0.95, p_per_sample=1, data_key="data", return_noise_vec=False):
+    def __init__(
+        self,
+        noise_variance=0.8,
+        gamma=0.95,
+        p_per_sample=1,
+        data_key="data",
+        return_noise_vec=False,
+    ):
         """
         Adds additive Gaussian Noise
         :param noise_variance: variance is uniformly sampled from that range
@@ -175,18 +216,24 @@ class ScaledNoiseTransform(AbstractTransform):
     def __call__(self, **data_dict):
         noise_variance = self.ensure_tuple(self.noise_variance)
         gamma = self.ensure_tuple(self.gamma)
-        data_dict[self.data_key+'_target'] = np.copy(data_dict[self.data_key])
+        data_dict[self.data_key + "_target"] = np.copy(data_dict[self.data_key])
         if self.return_noise_vec:
-            data_dict[self.data_key+'_noisevec'] = np.zeros_like(data_dict[self.data_key][:,0][:,None])
+            data_dict[self.data_key + "_noisevec"] = np.zeros_like(
+                data_dict[self.data_key][:, 0][:, None]
+            )
         for b in range(len(data_dict[self.data_key])):
             if np.random.uniform() < self.p_per_sample:
                 if self.return_noise_vec:
-                    data_dict[self.data_key][b], data_dict[self.data_key+'_noisevec'][b] =\
-                        self.augment_scaled_gaussian_noise(data_dict[self.data_key][b], 
-                                                noise_variance, gamma, True)
+                    (
+                        data_dict[self.data_key][b],
+                        data_dict[self.data_key + "_noisevec"][b],
+                    ) = self.augment_scaled_gaussian_noise(
+                        data_dict[self.data_key][b], noise_variance, gamma, True
+                    )
                 else:
-                    data_dict[self.data_key][b] = self.augment_scaled_gaussian_noise(data_dict[self.data_key][b], 
-                                                                        noise_variance, gamma, False)
+                    data_dict[self.data_key][b] = self.augment_scaled_gaussian_noise(
+                        data_dict[self.data_key][b], noise_variance, gamma, False
+                    )
         return data_dict
 
     def ensure_tuple(self, arg):
@@ -195,15 +242,17 @@ class ScaledNoiseTransform(AbstractTransform):
         else:
             return arg
 
-    def augment_scaled_gaussian_noise(self, data_sample, noise_variance=0.8,
-                                gamma=0.95, return_noise_vec=False):
+    def augment_scaled_gaussian_noise(
+        self, data_sample, noise_variance=0.8, gamma=0.95, return_noise_vec=False
+    ):
         variance = self.sample_dist(noise_variance)
         gamma = self.sample_dist(gamma)
-        
+
         noise_vec = np.random.normal(0.0, variance, size=data_sample[0].shape)
         for c in range(data_sample.shape[0]):
-            data_sample[c] = np.sqrt(gamma) * data_sample[c] +\
-                np.sqrt(1-gamma) * noise_vec
+            data_sample[c] = (
+                np.sqrt(gamma) * data_sample[c] + np.sqrt(1 - gamma) * noise_vec
+            )
         return (data_sample, noise_vec) if return_noise_vec else data_sample
 
     def sample_dist(self, arg):
@@ -217,7 +266,7 @@ class TestTransform(AbstractTransform):
     def __call__(self, **data_dict):
         print()
         for key in data_dict.keys():
-            print(key+': ', type(data_dict[key]))
+            print(key + ": ", type(data_dict[key]))
             try:
                 print(data_dict[key].shape)
             except:

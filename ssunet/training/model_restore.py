@@ -17,7 +17,10 @@ import torch
 from batchgenerators.utilities.file_and_folder_operations import *
 import importlib
 import pkgutil
-from ssunet.training.network_training.ContrastivePreTrainer import ContrastivePreTrainer, GC_ContrastivePreTrainer
+from ssunet.training.network_training.ContrastivePreTrainer import (
+    ContrastivePreTrainer,
+    GC_ContrastivePreTrainer,
+)
 
 
 def recursive_find_python_class(folder, trainer_name, current_module):
@@ -34,7 +37,11 @@ def recursive_find_python_class(folder, trainer_name, current_module):
         for importer, modname, ispkg in pkgutil.iter_modules(folder):
             if ispkg:
                 next_current_module = current_module + "." + modname
-                tr = recursive_find_python_class([join(folder[0], modname)], trainer_name, current_module=next_current_module)
+                tr = recursive_find_python_class(
+                    [join(folder[0], modname)],
+                    trainer_name,
+                    current_module=next_current_module,
+                )
             if tr is not None:
                 break
 
@@ -54,10 +61,12 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=None):
     :return:
     """
     info = load_pickle(pkl_file)
-    init = info['init']
-    name = info['name']
+    init = info["init"]
+    name = info["name"]
     search_in = join(ssunet.__path__[0], "training", "network_training")
-    tr = recursive_find_python_class([search_in], name, current_module="ssunet.training.network_training")
+    tr = recursive_find_python_class(
+        [search_in], name, current_module="ssunet.training.network_training"
+    )
 
     if tr is None:
         """
@@ -65,18 +74,26 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=None):
         """
         try:
             import meddec
+
             search_in = join(meddec.__path__[0], "model_training")
-            tr = recursive_find_python_class([search_in], name, current_module="meddec.model_training")
+            tr = recursive_find_python_class(
+                [search_in], name, current_module="meddec.model_training"
+            )
         except ImportError:
             pass
 
     if tr is None:
-        raise RuntimeError("Could not find the model trainer specified in checkpoint in ssunet.trainig.network_training. If it "
-                           "is not located there, please move it or change the code of restore_model. Your model "
-                           "trainer can be located in any directory within ssunet.trainig.network_training (search is recursive)."
-                           "\nDebug info: \ncheckpoint file: %s\nName of trainer: %s " % (checkpoint, name))
-    assert issubclass(tr, ContrastivePreTrainer), "The network trainer was found but is not a subclass of ContrastivePreTrainer. " \
-                                          "Please make it so!"
+        raise RuntimeError(
+            "Could not find the model trainer specified in checkpoint in ssunet.trainig.network_training. If it "
+            "is not located there, please move it or change the code of restore_model. Your model "
+            "trainer can be located in any directory within ssunet.trainig.network_training (search is recursive)."
+            "\nDebug info: \ncheckpoint file: %s\nName of trainer: %s "
+            % (checkpoint, name)
+        )
+    assert issubclass(tr, ContrastivePreTrainer), (
+        "The network trainer was found but is not a subclass of ContrastivePreTrainer. "
+        "Please make it so!"
+    )
 
     # this is now deprecated
     """if len(init) == 7:
@@ -94,7 +111,7 @@ def restore_model(pkl_file, checkpoint=None, train=False, fp16=None):
     if fp16 is not None:
         trainer.fp16 = fp16
 
-    trainer.process_plans(info['plans'])
+    trainer.process_plans(info["plans"])
     if checkpoint is not None:
         trainer.load_checkpoint(checkpoint, train)
     return trainer
@@ -106,7 +123,9 @@ def load_best_model_for_inference(folder):
     return restore_model(pkl_file, checkpoint, False)
 
 
-def load_model_and_checkpoint_files(folder, folds=None, mixed_precision=None, checkpoint_name="model_best"):
+def load_model_and_checkpoint_files(
+    folder, folds=None, mixed_precision=None, checkpoint_name="model_best"
+):
     """
     used for if you need to ensemble the five models of a cross-validation. This will restore the model from the
     checkpoint in fold 0, load all parameters of the five folds in ram and return both. This will allow for fast
@@ -126,25 +145,38 @@ def load_model_and_checkpoint_files(folder, folds=None, mixed_precision=None, ch
             folds = [join(folder, "all")]
         else:
             folds = [join(folder, "fold_%d" % i) for i in folds]
-        assert all([isdir(i) for i in folds]), "list of folds specified but not all output folders are present"
+        assert all(
+            [isdir(i) for i in folds]
+        ), "list of folds specified but not all output folders are present"
     elif isinstance(folds, int):
         folds = [join(folder, "fold_%d" % folds)]
-        assert all([isdir(i) for i in folds]), "output folder missing for fold %d" % folds
+        assert all([isdir(i) for i in folds]), (
+            "output folder missing for fold %d" % folds
+        )
     elif folds is None:
-        print("folds is None so we will automatically look for output folders (not using \'all\'!)")
+        print(
+            "folds is None so we will automatically look for output folders (not using 'all'!)"
+        )
         folds = subfolders(folder, prefix="fold")
         print("found the following folds: ", folds)
     else:
-        raise ValueError("Unknown value for folds. Type: %s. Expected: list of int, int, str or None", str(type(folds)))
+        raise ValueError(
+            "Unknown value for folds. Type: %s. Expected: list of int, int, str or None",
+            str(type(folds)),
+        )
 
-    trainer = restore_model(join(folds[0], "%s.model.pkl" % checkpoint_name), fp16=mixed_precision)
+    trainer = restore_model(
+        join(folds[0], "%s.model.pkl" % checkpoint_name), fp16=mixed_precision
+    )
     trainer.output_folder = folder
     trainer.output_folder_base = folder
     trainer.update_fold(0)
     trainer.initialize(False)
     all_best_model_files = [join(i, "%s.model" % checkpoint_name) for i in folds]
     print("using the following model files: ", all_best_model_files)
-    all_params = [torch.load(i, map_location=torch.device('cpu')) for i in all_best_model_files]
+    all_params = [
+        torch.load(i, map_location=torch.device("cpu")) for i in all_best_model_files
+    ]
     return trainer, all_params
 
 

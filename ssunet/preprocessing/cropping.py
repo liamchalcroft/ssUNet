@@ -22,7 +22,10 @@ from collections import OrderedDict
 
 def create_nonzero_mask(data):
     from scipy.ndimage import binary_fill_holes
-    assert len(data.shape) == 4 or len(data.shape) == 3, "data must have shape (C, X, Y, Z) or shape (C, X, Y)"
+
+    assert (
+        len(data.shape) == 4 or len(data.shape) == 3
+    ), "data must have shape (C, X, Y, Z) or shape (C, X, Y)"
     nonzero_mask = np.zeros(data.shape[1:], dtype=bool)
     for c in range(data.shape[0]):
         this_mask = data[c] != 0
@@ -44,7 +47,11 @@ def get_bbox_from_mask(mask, outside_value=0):
 
 def crop_to_bbox(image, bbox):
     assert len(image.shape) == 3, "only supports 3d images"
-    resizer = (slice(bbox[0][0], bbox[0][1]), slice(bbox[1][0], bbox[1][1]), slice(bbox[2][0], bbox[2][1]))
+    resizer = (
+        slice(bbox[0][0], bbox[0][1]),
+        slice(bbox[1][0], bbox[1][1]),
+        slice(bbox[2][0], bbox[2][1]),
+    )
     return image[resizer]
 
 
@@ -59,7 +66,9 @@ def get_case_identifier_from_npz(case):
 
 
 def load_case_from_list_of_files(data_files, seg_file=None):
-    assert isinstance(data_files, list) or isinstance(data_files, tuple), "case must be either a list or a tuple"
+    assert isinstance(data_files, list) or isinstance(
+        data_files, tuple
+    ), "case must be either a list or a tuple"
     properties = OrderedDict()
     data_itk = [sitk.ReadImage(f) for f in data_files]
 
@@ -142,11 +151,18 @@ class ImageCropper(object):
         if seg is None:
             seg = np.ones_like(data)
         shape_after = data.shape
-        print("before crop:", shape_before, "after crop:", shape_after, "spacing:",
-              np.array(properties["original_spacing"]), "\n")
+        print(
+            "before crop:",
+            shape_before,
+            "after crop:",
+            shape_after,
+            "spacing:",
+            np.array(properties["original_spacing"]),
+            "\n",
+        )
 
         properties["crop_bbox"] = bbox
-        properties['classes'] = np.unique(seg)
+        properties["classes"] = np.unique(seg)
         seg[seg < -1] = 0
         properties["size_after_cropping"] = data[0].shape
         return data, seg, properties
@@ -159,21 +175,35 @@ class ImageCropper(object):
     def load_crop_save(self, case, case_identifier, overwrite_existing=False):
         try:
             print(case_identifier)
-            if overwrite_existing \
-                    or (not os.path.isfile(os.path.join(self.output_folder, "%s.npz" % case_identifier))
-                        or not os.path.isfile(os.path.join(self.output_folder, "%s.pkl" % case_identifier))):
+            if overwrite_existing or (
+                not os.path.isfile(
+                    os.path.join(self.output_folder, "%s.npz" % case_identifier)
+                )
+                or not os.path.isfile(
+                    os.path.join(self.output_folder, "%s.pkl" % case_identifier)
+                )
+            ):
 
                 segs = False
                 for c in case:
-                    if 'labelsTr' in c:
+                    if "labelsTr" in c:
                         segs = True
-                print('segs: ', segs)
+                print("segs: ", segs)
 
-                data, seg, properties = self.crop_from_list_of_files(case[:-1], case[-1]) if segs else self.crop_from_list_of_files(data_files=case, seg_file=None)
+                data, seg, properties = (
+                    self.crop_from_list_of_files(case[:-1], case[-1])
+                    if segs
+                    else self.crop_from_list_of_files(data_files=case, seg_file=None)
+                )
 
                 all_data = np.vstack((data, seg))
-                np.savez_compressed(os.path.join(self.output_folder, "%s.npz" % case_identifier), data=all_data)
-                with open(os.path.join(self.output_folder, "%s.pkl" % case_identifier), 'wb') as f:
+                np.savez_compressed(
+                    os.path.join(self.output_folder, "%s.npz" % case_identifier),
+                    data=all_data,
+                )
+                with open(
+                    os.path.join(self.output_folder, "%s.pkl" % case_identifier), "wb"
+                ) as f:
                     pickle.dump(properties, f)
         except Exception as e:
             print("Exception in", case_identifier, ":")
@@ -215,10 +245,14 @@ class ImageCropper(object):
         p.join()
 
     def load_properties(self, case_identifier):
-        with open(os.path.join(self.output_folder, "%s.pkl" % case_identifier), 'rb') as f:
+        with open(
+            os.path.join(self.output_folder, "%s.pkl" % case_identifier), "rb"
+        ) as f:
             properties = pickle.load(f)
         return properties
 
     def save_properties(self, case_identifier, properties):
-        with open(os.path.join(self.output_folder, "%s.pkl" % case_identifier), 'wb') as f:
+        with open(
+            os.path.join(self.output_folder, "%s.pkl" % case_identifier), "wb"
+        ) as f:
             pickle.dump(properties, f)

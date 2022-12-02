@@ -17,8 +17,14 @@ from batchgenerators.utilities.file_and_folder_operations import *
 from ssunet.paths import network_training_output_dir
 
 
-def get_output_folder_name(model: str, task: str = None, trainer: str = None, plans: str = None, fold: int = None,
-                           overwrite_training_output_dir: str = None):
+def get_output_folder_name(
+    model: str,
+    task: str = None,
+    trainer: str = None,
+    plans: str = None,
+    fold: int = None,
+    overwrite_training_output_dir: str = None,
+):
     """
     Retrieves the correct output directory for the nnU-Net model described by the input parameters
 
@@ -30,7 +36,7 @@ def get_output_folder_name(model: str, task: str = None, trainer: str = None, pl
     :param overwrite_training_output_dir:
     :return:
     """
-    assert model in ["2d", "3d_cascade_fullres", '3d_fullres', '3d_lowres']
+    assert model in ["2d", "3d_cascade_fullres", "3d_fullres", "3d_lowres"]
 
     if overwrite_training_output_dir is not None:
         tr_dir = overwrite_training_output_dir
